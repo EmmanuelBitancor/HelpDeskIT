@@ -1,5 +1,6 @@
 # HelpDeskIT
 
+
 IT help desk application built with Next.js and Supabase.
 
 ## Prerequisites
@@ -78,3 +79,5 @@ Open [http://localhost:3000](http://localhost:3000).
 | `npm run build` | Production build |
 | `npm run start` | Start production server |
 | `npm run lint` | Run ESLint |
+
+
