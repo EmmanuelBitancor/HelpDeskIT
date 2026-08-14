@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
-
-type TicketPriority = "low" | "medium" | "high" | "critical";
+import { useState, useRef, useEffect, useCallback } from "react";
+import type { TicketPriority } from "../../types/ticket";
 
 interface NewTicketModalProps {
   isOpen: boolean;
@@ -14,7 +13,7 @@ interface NewTicketModalProps {
     category: string;
     priority: TicketPriority;
     description: string;
-  }) => void;
+  }) => Promise<{ success: boolean; error?: string }>;
 }
 
 export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketModalProps) {
@@ -26,20 +25,93 @@ export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketM
     priority: "medium" as TicketPriority,
     description: "",
   });
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  const getFocusableElements = useCallback(() => {
+    if (!dialogRef.current) return [];
+    return Array.from(
+      dialogRef.current.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((el) => !el.hasAttribute("disabled"));
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const previousFocus = document.activeElement as HTMLElement;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      const focusable = getFocusableElements();
+      if (!focusable.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first || !dialogRef.current?.contains(document.activeElement)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last || !dialogRef.current?.contains(document.activeElement)) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    dialogRef.current?.focus();
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previousFocus.focus();
+    };
+  }, [isOpen, onClose, getFocusableElements]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(form);
-    setForm({ fullname: "", department: "", subject: "", category: "General", priority: "medium", description: "" });
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      const result = await onSubmit(form);
+      if (result.success) {
+        setForm({ fullname: "", department: "", subject: "", category: "General", priority: "medium", description: "" });
+        onClose();
+      } else {
+        setError(result.error ?? "Failed to create ticket");
+      }
+    } catch {
+      setError("Failed to create ticket");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl dark:bg-zinc-900">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="newTicketTitle"
+        tabIndex={-1}
+        className="w-full max-w-lg rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
+      >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
-          <h3 className="text-lg font-semibold text-foreground">New Ticket</h3>
+          <h3 id="newTicketTitle" className="text-lg font-semibold text-foreground">New Ticket</h3>
           <button
             onClick={onClose}
             className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
@@ -51,11 +123,11 @@ export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketM
         </div>
         <form onSubmit={handleSubmit} className="space-y-4 p-6">
             <div>
-            <label htmlFor="subject" className="block text-sm font-medium text-foreground">
+            <label htmlFor="fullname" className="block text-sm font-medium text-foreground">
               Fullname
             </label>
             <input
-              id="subject"
+              id="fullname"
               type="text"
               required
               value={form.fullname}
@@ -65,11 +137,11 @@ export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketM
             />
           </div>
           <div>
-            <label htmlFor="subject" className="block text-sm font-medium text-foreground">
+            <label htmlFor="department" className="block text-sm font-medium text-foreground">
               Department/Office
             </label>
             <input
-              id="subject"
+              id="department"
               type="text"
               required
               value={form.department}
@@ -143,6 +215,9 @@ export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketM
               placeholder="Provide details about your issue..."
             />
           </div>
+          {error && (
+            <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>
+          )}
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
@@ -153,9 +228,10 @@ export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketM
             </button>
             <button
               type="submit"
-              className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2"
+              disabled={isSubmitting}
+              className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2 disabled:opacity-50"
             >
-              Submit Ticket
+              {isSubmitting ? "Submitting..." : "Submit Ticket"}
             </button>
           </div>
         </form>

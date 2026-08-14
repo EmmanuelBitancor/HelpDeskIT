@@ -1,36 +1,83 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# HelpDeskIT
 
-## Getting Started
 
-First, run the development server:
+IT help desk application built with Next.js and Supabase.
+
+## Prerequisites
+
+- Node.js >= 18
+- npm, pnpm, or yarn
+- A Supabase project
+
+## Environment Variables
+
+Create a `.env` file from `.env.example` and fill in your Supabase project credentials.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Required variables (sources: `lib/supabase/client.ts`, `lib/supabase/server.ts`):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Variable | Description |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (Project Settings → API) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key (Project Settings → API) |
+| `UPSTASH_REDIS_REST_URL` | Upstash Redis URL for rate limiting (optional, falls back to in-memory) |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis token for rate limiting (optional) |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Database Setup
 
-## Learn More
+1. Open your Supabase project dashboard.
+2. Go to **SQL Editor**.
+3. Run the migration:
 
-To learn more about Next.js, take a look at the following resources:
+```sql
+-- Paste contents of supabase/migrations/0001_init.sql
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+This creates the tables, indexes, RLS policies, and the auto-profile trigger for new sign-ups.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+4. Seed demo application data:
 
-## Deploy on Vercel
+```sql
+-- Paste contents of supabase/seed/seed_demo_data.sql
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+5. Create auth users in the Supabase Dashboard:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Go to **Authentication → Users → Add user**
+- Create each account with a unique password and toggle **Auto Confirm User** ON
+- These demo accounts are for local development only; do not reuse these passwords in production
+
+| Email | Role | Notes |
+|---|---|---|
+| `user@company.com` | user | Local demo account |
+| `sarah.chen@company.com` | support | Local demo account |
+| `marcus.j@company.com` | support | Local demo account |
+| `emily.r@company.com` | support | Local demo account |
+| `david.kim@company.com` | support | Local demo account |
+| `admin@company.com` | admin | Local demo account |
+| `superadmin@company.com` | superadmin | Local demo account |
+
+New sign-ups automatically create an `accounts` row via the `handle_new_user` trigger, using `user_metadata.role` (defaults to `user`).
+
+## Install and Run
+
+```bash
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+## Scripts
+
+| Command | Description |
+|---|---|
+| `npm run dev` | Start development server |
+| `npm run build` | Production build |
+| `npm run start` | Start production server |
+| `npm run lint` | Run ESLint |
+
+

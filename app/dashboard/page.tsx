@@ -1,22 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import NewTicketModal from "./components/NewTicketModal";
+import KnowledgeBase from "./components/KnowledgeBase";
+import { useAuth } from "@/context/AuthContext";
+import { FORBIDDEN_ROUTE } from "@/context/authTypes";
+import SignOutButton from "@/components/SignOutButton";
+import Loading from "@/components/Loading";
+import { createClient } from "@/lib/supabase/client";
+import type { Ticket, TicketStatus, TicketPriority } from "../types/ticket";
+import { toAdminTicket as toTicket } from "../types/mappers";
 
-type TicketStatus = "open" | "in_progress" | "resolved" | "closed";
-type TicketPriority = "low" | "medium" | "high" | "critical";
-
-interface Ticket {
-  id: string;
-  subject: string;
-  category: string;
-  priority: TicketPriority;
-  status: TicketStatus;
-  createdAt: string;
-  updatedAt: string;
-  description: string;
-}
+const supabase = createClient();
 
 const statusStyles: Record<TicketStatus, string> = {
   open: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
@@ -54,6 +50,7 @@ export default function DashboardPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [activeTab, setActiveTab] = useState<"active" | "past">("active");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isKbOpen, setIsKbOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
 
@@ -65,10 +62,31 @@ export default function DashboardPage() {
       : "light";
   });
 
+  const router = useRouter();
+  const { user, loading } = useAuth();
+
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    localStorage.setItem("theme", theme);
+    if (typeof window !== "undefined") {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      localStorage.setItem("theme", theme);
+    }
   }, [theme]);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    let active = true;
+    (async () => {
+      const { data } = await supabase
+        .from("tickets")
+        .select("*")
+        .eq("submitted_by", user.email)
+        .order("created_at", { ascending: false });
+      if (active && data) setTickets(data.map((r) => toTicket(r)));
+    })();
+    return () => {
+      active = false;
+    };
+  }, [user?.email]);
 
   const activeTickets = tickets.filter(
     (t) => t.status === "open" || t.status === "in_progress",
@@ -86,28 +104,45 @@ export default function DashboardPage() {
     total: tickets.length,
   };
 
-  const handleNewTicket = (form: {
+  const handleNewTicket = async (form: {
+    fullname: string;
+    department: string;
     subject: string;
     category: string;
     priority: TicketPriority;
     description: string;
-  }) => {
+  }): Promise<{ success: boolean; error?: string }> => {
+    if (!user?.email) return { success: false, error: "Not authenticated" };
     const now = new Date().toISOString();
-    setTickets((prev) => {
-      const newTicket: Ticket = {
-        id: `TK-${1000 + prev.length + 1}`,
+    const description = [
+      form.fullname ? `Name: ${form.fullname}` : "",
+      form.department ? `Dept: ${form.department}` : "",
+      form.description,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    const { data, error } = await supabase
+      .from("tickets")
+      .insert({
+        id: `TK-${Date.now()}`,
         subject: form.subject,
         category: form.category,
         priority: form.priority,
         status: "open",
-        createdAt: now,
-        updatedAt: now,
-        description: form.description,
-      };
+        description,
+        submitted_by: user.email,
+        created_at: now,
+        updated_at: now,
+      })
+      .select()
+      .single();
 
-      return [newTicket, ...prev];
-    });
-    setIsModalOpen(false);
+    if (!error && data) {
+      setTickets((prev) => [toTicket(data), ...prev]);
+      return { success: true };
+    }
+    return { success: false, error: error?.message ?? "Failed to create ticket" };
   };
 
   const toggleTheme = () => {
@@ -119,11 +154,25 @@ export default function DashboardPage() {
     });
   };
 
+  useEffect(() => {
+    if (loading) return;
+    if (!user) {
+      router.replace("/");
+    } else if (user.role !== "user") {
+      router.replace(FORBIDDEN_ROUTE);
+    }
+  }, [user, loading, router]);
+
+  if (loading) return <Loading />;
+  if (!user || user.role !== "user") {
+    return <Loading />;
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-zinc-200 dark:border-zinc-800">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center justify-between">
+          <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 py-2">
             <div className="flex items-center gap-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground text-background">
                 <svg
@@ -181,15 +230,10 @@ export default function DashboardPage() {
                 )}
                 Theme
               </button>
-              <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                user@company.com
+              <span className="hidden text-sm text-zinc-600 dark:text-zinc-400 sm:inline">
+                {user?.email ?? "user@company.com"}
               </span>
-              <Link
-                href="/"
-                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              >
-                Log out
-              </Link>
+              <SignOutButton />
             </div>
           </div>
         </div>
@@ -205,25 +249,46 @@ export default function DashboardPage() {
               Manage and track your support tickets
             </p>
           </div>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2"
-          >
-            <svg
-              className="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 4.5v15m7.5-7.5h-15"
-              />
-            </svg>
-            New Ticket
-          </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIsKbOpen(true)}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A9 9 0 006 18c1.052 0 2.062-.18 3-.512m0-13.042A8.967 8.967 0 0118 3.75c1.052 0 2.062.18 3 .512v14.25A9 9 0 0118 18c-1.052 0-2.062-.18-3-.512"
+                  />
+                </svg>
+                Knowledge Base
+              </button>
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 4.5v15m7.5-7.5h-15"
+                  />
+                </svg>
+                New Ticket
+              </button>
+            </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -398,6 +463,10 @@ export default function DashboardPage() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleNewTicket}
+      />
+      <KnowledgeBase
+        isOpen={isKbOpen}
+        onClose={() => setIsKbOpen(false)}
       />
     </div>
   );
