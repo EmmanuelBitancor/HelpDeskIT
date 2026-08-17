@@ -5,24 +5,26 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { FORBIDDEN_ROUTE } from "@/context/authTypes";
 import SignOutButton from "@/components/SignOutButton";
-import Loading from "@/components/Loading";
+import { SuperAdminSkeleton, Skeleton } from "@/components/skeleton";
 import { createClient } from "@/lib/supabase/client";
+import { logActivity } from "@/lib/activity";
+import ProfileSettingsModal from "../settings/components/ProfileSettingsModal";
+import ChatPanel from "../chat/components/ChatPanel";
+import {
+  Chart as ChartJS,
+  ArcElement,
+  BarElement,
+  CategoryScale,
+  LinearScale,
+  Tooltip,
+  Legend,
+} from "chart.js";
+import { Pie, Bar } from "react-chartjs-2";
 import type { TicketStatus, TicketPriority } from "../types/ticket";
 
-const supabase = createClient();
+ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 
-function toSystemUser(row: Record<string, unknown>): SystemUser {
-  return {
-    id: String(row.id),
-    name: String(row.name ?? ""),
-    email: String(row.email ?? ""),
-    role: (row.role as UserRole) ?? "user",
-    status: (row.status as UserStatus) ?? "active",
-    createdAt: String(row.created_at ?? ""),
-    lastLogin: row.last_login ? String(row.last_login) : "—",
-    ticketCount: Number(row.ticket_count ?? 0),
-  };
-}
+const supabase = createClient();
 
 function toTicket(row: Record<string, unknown>): Ticket {
   const staff = row.support_staff as { name?: string } | null | undefined;
@@ -65,13 +67,15 @@ function toSystemHealth(row: Record<string, unknown>): SystemHealth {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type UserRole = "user" | "agent" | "admin" | "superadmin";
+type UserRole = "user" | "support" | "admin" | "superadmin";
 type UserStatus = "active" | "suspended" | "pending";
 type LogLevel = "info" | "warn" | "error" | "debug";
 type NavSection =
   | "overview"
   | "users"
   | "tickets"
+  | "activity"
+  | "sessions"
   | "system"
   | "logs"
   | "settings";
@@ -108,6 +112,19 @@ interface SystemLog {
   meta?: string;
 }
 
+interface ActivityLog {
+  id: string;
+  actor_id: string;
+  actor_name: string;
+  actor_role: string;
+  action: string;
+  target_type?: string;
+  target_id?: string;
+  details?: string;
+  ip_address?: string;
+  created_at: string;
+}
+
 interface SystemHealth {
   cpu: number;
   memory: number;
@@ -132,7 +149,7 @@ const statusStyles: Record<UserStatus, string> = {
 const roleStyles: Record<UserRole, string> = {
   superadmin: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
   admin: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-  agent: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
+  support: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
   user: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
 };
 
@@ -243,12 +260,12 @@ function OverviewSection({
   health,
   users,
   tickets,
-  logs,
+  activities,
 }: {
   health: SystemHealth;
   users: SystemUser[];
   tickets: Ticket[];
-  logs: SystemLog[];
+  activities: ActivityLog[];
 }) {
   const ticketsByStatus = {
     open: tickets.filter((t) => t.status === "open").length,
@@ -259,6 +276,71 @@ function OverviewSection({
   const criticalTickets = tickets.filter(
     (t) => t.priority === "critical" && t.status !== "resolved"
   ).length;
+
+  const usersByRole = {
+    user: users.filter((u) => u.role === "user").length,
+    support: users.filter((u) => u.role === "support").length,
+    admin: users.filter((u) => u.role === "admin").length,
+    superadmin: users.filter((u) => u.role === "superadmin").length,
+  };
+
+  const pieData = {
+    labels: ["Open", "In Progress", "Resolved", "Closed"],
+    datasets: [
+      {
+        data: [
+          ticketsByStatus.open,
+          ticketsByStatus.in_progress,
+          ticketsByStatus.resolved,
+          ticketsByStatus.closed,
+        ],
+        backgroundColor: [
+          "rgba(59, 130, 246, 0.8)",
+          "rgba(245, 158, 11, 0.8)",
+          "rgba(16, 185, 129, 0.8)",
+          "rgba(107, 114, 128, 0.8)",
+        ],
+        borderColor: [
+          "rgba(59, 130, 246, 1)",
+          "rgba(245, 158, 11, 1)",
+          "rgba(16, 185, 129, 1)",
+          "rgba(107, 114, 128, 1)",
+        ],
+        borderWidth: 1,
+      },
+    ],
+  };
+
+  const barData = {
+    labels: ["Users", "Support", "Admins", "Superadmins"],
+    datasets: [
+      {
+        label: "Users by Role",
+        data: [usersByRole.user, usersByRole.support, usersByRole.admin, usersByRole.superadmin],
+        backgroundColor: [
+          "rgba(59, 130, 246, 0.8)",
+          "rgba(16, 185, 129, 0.8)",
+          "rgba(245, 158, 11, 0.8)",
+          "rgba(139, 92, 246, 0.8)",
+        ],
+        borderRadius: 6,
+      },
+    ],
+  };
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: "bottom" as const,
+        labels: {
+          padding: 20,
+          usePointStyle: true,
+        },
+      },
+    },
+  };
 
   return (
     <div className="space-y-6">
@@ -289,72 +371,18 @@ function OverviewSection({
         />
       </div>
 
-      {/* System Health Panel */}
-      <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-            </span>
-            <h2 className="text-sm font-semibold text-foreground">
-              System Health
-            </h2>
-            <span className="ml-auto text-xs text-zinc-400">Live</span>
+      {/* Charts */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+          <h3 className="mb-4 text-sm font-semibold text-foreground">Ticket Status Distribution</h3>
+          <div className="h-64">
+            <Pie data={pieData} options={chartOptions} />
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-5 p-5 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            { label: "CPU Usage", value: health.cpu, unit: "%" },
-            { label: "Memory", value: health.memory, unit: "%" },
-          ].map(({ label, value, unit }) => (
-            <div key={label} className="space-y-2">
-              <div className="flex items-baseline justify-between">
-                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                  {label}
-                </span>
-                <span className="text-sm font-semibold text-foreground">
-                  {value}
-                  {unit}
-                </span>
-              </div>
-              <MetricBar value={value} />
-            </div>
-          ))}
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              DB Latency
-            </p>
-            <p className="text-xl font-semibold text-foreground">
-              {health.dbLatency}
-              <span className="text-xs font-normal text-zinc-400"> ms</span>
-            </p>
-          </div>
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              API Response
-            </p>
-            <p className="text-xl font-semibold text-foreground">
-              {health.apiResponseTime}
-              <span className="text-xs font-normal text-zinc-400"> ms</span>
-            </p>
-          </div>
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              Active Connections
-            </p>
-            <p className="text-xl font-semibold text-foreground">
-              {health.activeConnections}
-            </p>
-          </div>
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              Queue Depth
-            </p>
-            <p className="text-xl font-semibold text-foreground">
-              {health.queueDepth}
-              <span className="text-xs font-normal text-zinc-400"> jobs</span>
-            </p>
+        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+          <h3 className="mb-4 text-sm font-semibold text-foreground">Users by Role</h3>
+          <div className="h-64">
+            <Bar data={barData} options={chartOptions} />
           </div>
         </div>
       </div>
@@ -363,30 +391,33 @@ function OverviewSection({
       <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
           <h2 className="text-sm font-semibold text-foreground">
-            Recent Critical Activity
+            Recent Activity
           </h2>
         </div>
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {logs.filter((l) => l.level === "error" || l.level === "warn")
-            .slice(0, 4)
-            .map((log) => (
-              <div key={log.id} className="flex items-start gap-3 px-5 py-3">
-                <span
-                  className={`mt-0.5 inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide ${logLevelStyles[log.level]}`}
-                >
-                  {log.level}
-                </span>
+          {activities.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-zinc-400">
+              No activity recorded yet. Actions will appear here as users interact with the system.
+            </div>
+          ) : (
+            activities.slice(0, 8).map((act) => (
+              <div key={act.id} className="flex items-start gap-3 px-5 py-3">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-foreground">
-                    {log.message}
+                  <p className="text-sm text-foreground">
+                    <span className="font-medium">{act.actor_name}</span>
+                    {" "}{act.action.replace(/_/g, " ")}
+                    {act.target_type && <span className="text-zinc-500"> on {act.target_type}</span>}
                   </p>
-                  <p className="text-xs text-zinc-400">{log.source}</p>
+                  {act.details && (
+                    <p className="truncate text-xs text-zinc-400">{act.details}</p>
+                  )}
                 </div>
                 <span className="shrink-0 text-xs text-zinc-400">
-                  {formatTimestamp(log.timestamp)}
+                  {new Date(act.created_at).toLocaleString()}
                 </span>
               </div>
-            ))}
+            ))
+          )}
         </div>
       </div>
     </div>
@@ -440,7 +471,7 @@ function UsersSection({
           />
         </div>
         <div className="flex items-center gap-2">
-          {(["all", "superadmin", "admin", "agent", "user"] as const).map(
+          {(["all", "superadmin", "admin", "support", "user"] as const).map(
             (r) => (
               <button
                 key={r}
@@ -656,6 +687,215 @@ function TicketsSection({ tickets }: { tickets: Ticket[] }) {
   );
 }
 
+function ActivitySection({ activities }: { activities: ActivityLog[] }) {
+  const [filter, setFilter] = useState<string>("all");
+
+  const filtered =
+    filter === "all" ? activities : activities.filter((a) => a.action === filter);
+
+  const uniqueActions = Array.from(new Set(activities.map((a) => a.action)));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => setFilter("all")}
+          className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+            filter === "all"
+              ? "bg-foreground text-background"
+              : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          }`}
+        >
+          All
+        </button>
+        {uniqueActions.map((action) => (
+          <button
+            key={action}
+            onClick={() => setFilter(action)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+              filter === action
+                ? "bg-foreground text-background"
+                : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            }`}
+          >
+            {action.replace(/_/g, " ")}
+          </button>
+        ))}
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+          {filtered.map((log) => (
+            <div key={log.id} className="flex flex-wrap items-start gap-3 px-5 py-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium text-foreground">
+                    {log.actor_name}
+                  </span>
+                  <span className="text-xs text-zinc-400">
+                    ({log.actor_role})
+                  </span>
+                  <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                    {log.action.replace(/_/g, " ")}
+                  </span>
+                  {log.target_type && (
+                    <span className="inline-flex items-center rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                      {log.target_type}
+                    </span>
+                  )}
+                </div>
+                {log.details && (
+                  <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                    {log.details}
+                  </p>
+                )}
+                <p className="mt-1 text-xs text-zinc-400">
+                  {new Date(log.created_at).toLocaleString()}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+        {filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 text-zinc-400">
+            <p className="text-sm">No activity logs yet.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SessionsSection() {
+  const [sessions, setSessions] = useState<
+    Array<{
+      id: string;
+      user_email: string;
+      user_name: string;
+      user_role: string;
+      device?: string;
+      last_active: string;
+      created_at: string;
+    }>
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [revoking, setRevoking] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/sessions");
+        const data = await res.json();
+        if (active && data.sessions) setSessions(data.sessions);
+      } catch {
+        // ignore
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const revokeSession = async (sessionId: string) => {
+    setRevoking(sessionId);
+    try {
+      await fetch("/api/sessions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    } catch {
+      // ignore
+    } finally {
+      setRevoking(null);
+    }
+  };
+
+  const revokeAllUserSessions = async (userEmail: string) => {
+    try {
+      await fetch("/api/sessions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userEmail }),
+      });
+      setSessions((prev) => prev.filter((s) => s.user_email !== userEmail));
+    } catch {
+      // ignore
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
+          <h2 className="text-sm font-semibold text-foreground">
+            Active Sessions
+          </h2>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            Sessions stay active until the user logs out. You can revoke any session below.
+          </p>
+        </div>
+        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+          {loading ? (
+            <div className="space-y-3 p-4">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="space-y-2 px-5 py-3">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-3 w-64" />
+                  <Skeleton className="h-3 w-48" />
+                </div>
+              ))}
+            </div>
+          ) : sessions.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-zinc-400">
+              No active sessions found.
+            </div>
+          ) : (
+            sessions.map((session) => (
+              <div
+                key={session.id}
+                className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground">
+                    {session.user_name}
+                  </p>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    {session.user_email} · {session.user_role}
+                  </p>
+                  <p className="text-xs text-zinc-400">
+                    {session.device || "Unknown device"} · Last active{" "}
+                    {new Date(session.last_active).toLocaleString()}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => revokeSession(session.id)}
+                    disabled={revoking === session.id}
+                    className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-900/20 disabled:opacity-50"
+                  >
+                    {revoking === session.id ? "Revoking..." : "Revoke"}
+                  </button>
+                  <button
+                    onClick={() => revokeAllUserSessions(session.user_email)}
+                    className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  >
+                    Revoke All
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SystemSection({ health }: { health: SystemHealth }) {
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [emailNotifs, setEmailNotifs] = useState(true);
@@ -738,7 +978,7 @@ function SystemSection({ health }: { health: SystemHealth }) {
             {
               label: "Auto-Assign Tickets",
               description:
-                "Automatically assign new tickets to available agents.",
+                "Automatically assign new tickets to available support staff.",
               value: autoAssign,
               toggle: () => setAutoAssign((v) => !v),
               danger: false,
@@ -877,13 +1117,35 @@ function LogsSection({ logs }: { logs: SystemLog[] }) {
   );
 }
 
-function SettingsSection() {
+function SettingsSection({ user, onOpenProfile }: { user: { name: string; email: string }; onOpenProfile: () => void }) {
   const [siteName, setSiteName] = useState("HelpDeskIT");
   const [maxTickets, setMaxTickets] = useState("10");
   const [sessionTimeout, setSessionTimeout] = useState("60");
 
   return (
     <div className="space-y-6">
+      <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
+          <h2 className="text-sm font-semibold text-foreground">
+            Profile Settings
+          </h2>
+        </div>
+        <div className="p-5">
+          <div className="flex items-center justify-between rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
+            <div>
+              <p className="text-sm font-medium text-foreground">{user.name}</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">{user.email}</p>
+            </div>
+            <button
+              onClick={onOpenProfile}
+              className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              Edit Profile
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
           <h2 className="text-sm font-semibold text-foreground">
@@ -999,8 +1261,11 @@ export default function SuperAdminDashboard() {
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [logs, setLogs] = useState<SystemLog[]>([]);
+  const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   const router = useRouter();
   const { user, loading } = useAuth();
@@ -1017,16 +1282,13 @@ export default function SuperAdminDashboard() {
     let active = true;
     (async () => {
       setLoadError(null);
-      const [healthRes, usersRes, ticketsRes, logsRes] = await Promise.all([
+      const [healthRes, usersRes, ticketsRes, logsRes, activityRes] = await Promise.all([
         supabase
           .from("system_health")
           .select("*")
           .order("recorded_at", { ascending: false })
           .limit(1),
-        supabase
-          .from("users")
-          .select("*")
-          .order("created_at", { ascending: false }),
+        fetch("/api/users").then((res) => res.json()),
         supabase
           .from("tickets")
           .select("*, support_staff!left(name)")
@@ -1036,28 +1298,138 @@ export default function SuperAdminDashboard() {
           .select("*")
           .order("timestamp", { ascending: false })
           .limit(200),
+        supabase
+          .from("activity_logs")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(100),
       ]);
       if (!active) return;
       const firstError =
-        healthRes.error ?? usersRes.error ?? ticketsRes.error ?? logsRes.error;
+        healthRes.error ??
+        (usersRes.error && usersRes.error) ??
+        ticketsRes.error ??
+        logsRes.error ??
+        activityRes.error;
       if (firstError) {
-        setLoadError(firstError.message);
+        setLoadError(
+          typeof firstError === "string" ? firstError : firstError.message || "Failed to load"
+        );
         return;
       }
       if (healthRes.data?.length) setHealth(toSystemHealth(healthRes.data[0]));
-      if (usersRes.data) setUsers(usersRes.data.map(toSystemUser));
+      if (usersRes.users) setUsers(usersRes.users);
+      else if (Array.isArray(usersRes)) setUsers(usersRes);
       if (ticketsRes.data) setTickets(ticketsRes.data.map(toTicket));
       if (logsRes.data) setLogs(logsRes.data.map(toSystemLog));
+      if (activityRes.data) setActivities(activityRes.data);
     })();
     return () => {
       active = false;
     };
   }, [user]);
 
+  useEffect(() => {
+    if (!user || user.role !== "superadmin") return;
+    let mounted = true;
+
+    const refresh = async () => {
+      const [healthRes, usersRes, ticketsRes, logsRes, activityRes] = await Promise.all([
+        supabase
+          .from("system_health")
+          .select("*")
+          .order("recorded_at", { ascending: false })
+          .limit(1),
+        fetch("/api/users").then((res) => res.json()),
+        supabase
+          .from("tickets")
+          .select("*, support_staff!left(name)")
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("system_logs")
+          .select("*")
+          .order("timestamp", { ascending: false })
+          .limit(200),
+        supabase
+          .from("activity_logs")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(100),
+      ]);
+
+      if (!mounted) return;
+      const firstError =
+        healthRes.error ??
+        (usersRes.error && usersRes.error) ??
+        ticketsRes.error ??
+        logsRes.error ??
+        activityRes.error;
+      if (firstError) {
+        setLoadError(
+          typeof firstError === "string" ? firstError : firstError.message || "Failed to load"
+        );
+        return;
+      }
+      if (healthRes.data?.length) setHealth(toSystemHealth(healthRes.data[0]));
+      if (usersRes.users) setUsers(usersRes.users);
+      else if (Array.isArray(usersRes)) setUsers(usersRes);
+      if (ticketsRes.data) setTickets(ticketsRes.data.map(toTicket));
+      if (logsRes.data) setLogs(logsRes.data.map(toSystemLog));
+      if (activityRes.data) setActivities(activityRes.data);
+    };
+
+    refresh();
+
+    const channels = [
+      supabase.channel("realtime-accounts").on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "accounts" },
+        () => {
+          refresh();
+        }
+      ),
+      supabase.channel("realtime-tickets").on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tickets" },
+        () => {
+          refresh();
+        }
+      ),
+      supabase.channel("realtime-activity").on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "activity_logs" },
+        () => {
+          refresh();
+        }
+      ),
+      supabase.channel("realtime-logs").on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "system_logs" },
+        () => {
+          refresh();
+        }
+      ),
+      supabase.channel("realtime-health").on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "system_health" },
+        () => {
+          refresh();
+        }
+      ),
+    ];
+
+    channels.forEach((channel) => channel.subscribe());
+
+    return () => {
+      mounted = false;
+      channels.forEach((channel) => supabase.removeChannel(channel));
+    };
+  }, [user]);
+
   const handleApproveUser = async (id: string) => {
     setActionError(null);
     const { error, count } = await supabase
-      .from("users")
+      .from("accounts")
       .update({ status: "active" })
       .eq("id", id);
     if (error || count !== 1) {
@@ -1067,6 +1439,12 @@ export default function SuperAdminDashboard() {
     setUsers((prev) =>
       prev.map((u) => (u.id === id ? { ...u, status: "active" } : u))
     );
+    await logActivity({
+      action: "user_approved",
+      target_type: "user",
+      target_id: id,
+      details: "Approved pending user",
+    });
   };
 
   const handleToggleStatus = async (id: string) => {
@@ -1075,7 +1453,7 @@ export default function SuperAdminDashboard() {
     if (!current) return;
     const next = current.status === "active" ? "suspended" : "active";
     const { error, count } = await supabase
-      .from("users")
+      .from("accounts")
       .update({ status: next })
       .eq("id", id);
     if (error || count !== 1) {
@@ -1085,6 +1463,12 @@ export default function SuperAdminDashboard() {
     setUsers((prev) =>
       prev.map((u) => (u.id === id ? { ...u, status: next } : u))
     );
+    await logActivity({
+      action: "user_status_changed",
+      target_type: "user",
+      target_id: id,
+      details: `Set user ${current.email} to ${next}`,
+    });
   };
 
   const toggleTheme = () => {
@@ -1126,6 +1510,24 @@ export default function SuperAdminDashboard() {
         ),
       },
       {
+        key: "activity",
+        label: "Activity",
+        icon: (
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        ),
+      },
+      {
+        key: "sessions",
+        label: "Sessions",
+        icon: (
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.25h15a1.5 1.5 0 001.5-1.5V19a5.25 5.25 0 00-10.5 0v.75a1.5 1.5 0 01-1.5 1.5H4.5z" />
+          </svg>
+        ),
+      },
+      {
         key: "system",
         label: "System",
         icon: (
@@ -1148,7 +1550,7 @@ export default function SuperAdminDashboard() {
         label: "Settings",
         icon: (
           <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217-.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" />
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
         ),
@@ -1162,6 +1564,8 @@ export default function SuperAdminDashboard() {
     overview: "System Overview",
     users: "User Management",
     tickets: "All Tickets",
+    activity: "Activity Feed",
+    sessions: "Active Sessions",
     system: "System Monitor",
     logs: "System Logs",
     settings: "System Settings",
@@ -1176,9 +1580,9 @@ export default function SuperAdminDashboard() {
     }
   }, [user, loading, router]);
 
-  if (loading) return <Loading />;
+  if (loading) return <SuperAdminSkeleton />;
   if (!user || user.role !== "superadmin") {
-    return <Loading />;
+    return <SuperAdminSkeleton />;
   }
 
   return (
@@ -1241,6 +1645,25 @@ export default function SuperAdminDashboard() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1.5m0 15V21m9-9h-1.5m-15 0H3m15.364 6.364l-1.06-1.06M6.697 6.697l-1.06-1.06m12.728 0l-1.06 1.06M6.697 17.303l-1.06 1.06M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                 )}
+              </button>
+              <button
+                onClick={() => setIsChatOpen(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 013 21V12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
+                  />
+                </svg>
+                <span className="hidden sm:inline">Chat</span>
               </button>
               <SignOutButton />
             </div>
@@ -1325,7 +1748,7 @@ export default function SuperAdminDashboard() {
                 health={health}
                 users={users}
                 tickets={tickets}
-                logs={logs}
+                activities={activities}
               />
             )}
             {activeSection === "users" && (
@@ -1336,12 +1759,67 @@ export default function SuperAdminDashboard() {
               />
             )}
             {activeSection === "tickets" && <TicketsSection tickets={tickets} />}
+            {activeSection === "activity" && <ActivitySection activities={activities} />}
+            {activeSection === "sessions" && <SessionsSection />}
             {activeSection === "system" && <SystemSection health={health} />}
             {activeSection === "logs" && <LogsSection logs={logs} />}
-            {activeSection === "settings" && <SettingsSection />}
+            {activeSection === "settings" && (
+              <SettingsSection
+                user={{ name: user.name, email: user.email }}
+                onOpenProfile={() => setIsProfileOpen(true)}
+              />
+            )}
           </main>
         </div>
       </div>
+      {isProfileOpen && (
+        <ProfileSettingsModal
+          isOpen={isProfileOpen}
+          onClose={() => setIsProfileOpen(false)}
+          initialName={user.name}
+          initialEmail={user.email}
+        />
+      )}
+      {isChatOpen && (
+        <ChatPanel
+          currentUser={{
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+          }}
+          getRecipients={async () => {
+            const { data: admins } = await supabase
+              .from("accounts")
+              .select("id, name, email, role")
+              .eq("role", "admin");
+            const { data: staff } = await supabase
+              .from("support_staff")
+              .select("id, name, email, role")
+              .eq("active", true);
+            const emails = (staff || []).map((s) => s.email);
+            const { data: staffAccounts } = emails.length
+              ? await supabase
+                  .from("accounts")
+                  .select("id, email")
+                  .in("email", emails)
+              : { data: [] as Array<{ id: string; email: string }> };
+            const staffAccountMap = new Map((staffAccounts || []).map((a) => [a.email, a.id]));
+            const mappedStaff = (staff || []).map((s) => ({
+              id: staffAccountMap.get(s.email) || s.id,
+              name: s.name,
+              email: s.email,
+              role: s.role,
+            }));
+            return [
+              ...(admins || []),
+              ...mappedStaff,
+            ];
+          }}
+          title="Messages"
+          onClose={() => setIsChatOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -9,40 +9,6 @@ interface Message {
   timestamp: Date;
 }
 
-const HELPBOT_RESPONSES: Record<string, string> = {
-  default:
-    "I'm not sure about that. Could you rephrase or describe your issue in more detail?",
-  greeting:
-    "Hi there! I'm HelpBot, your IT support assistant. How can I help you today?",
-};
-
-function getBotReply(input: string): string {
-  const text = input.toLowerCase();
-
-  if (/\b(hi|hello|hey|good\s*(morning|afternoon|evening))\b/.test(text))
-    return "Hello! How can I help you today?";
-  if (/\b(vpn|connection|network|wifi|internet)\b/.test(text))
-    return "For VPN or network issues, try disconnecting and reconnecting. If the problem persists, restart your device or contact your network admin.";
-  if (/\b(password|forgot|reset|login|sign\s*in)\b/.test(text))
-    return "To reset your password, go to the login page and click 'Forgot password'. Check your email for the reset link. Still stuck? Open a ticket and we'll help.";
-  if (/\b(printer|print|printing)\b/.test(text))
-    return "Make sure the printer is powered on and connected to the network. Try removing and re-adding the printer from your system settings.";
-  if (/\b(slow|lagging|performance|crash|freezing|hang)\b/.test(text))
-    return "Try restarting your device first. If the issue persists, check for pending updates or clear your browser cache.";
-  if (/\b(email|outlook|mail)\b/.test(text))
-    return "For email issues, check your internet connection and try signing out and back in. If sync is delayed, try removing and re-adding the account.";
-  if (/\b(ticket|support|request|help)\b/.test(text))
-    return "You can submit a ticket using the 'New Ticket' button on the dashboard. Our team typically responds within one business day.";
-  if (/\b(software|install|update|upgrade|app)\b/.test(text))
-    return "Software requests should be submitted as a ticket under the 'Software' category. Include the software name and your business justification.";
-  if (/\b(thanks|thank you|thx|ty)\b/.test(text))
-    return "You're welcome! Let me know if there's anything else I can help with.";
-  if (/\b(bye|goodbye|see you|later)\b/.test(text))
-    return "Goodbye! Don't hesitate to reach out if you need help. Take care!";
-
-  return HELPBOT_RESPONSES.default;
-}
-
 function formatTime(date: Date) {
   return date.toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -57,12 +23,13 @@ export default function HelpBot() {
     {
       id: "welcome",
       role: "bot",
-      text: HELPBOT_RESPONSES.greeting,
+      text: "Hi there! I'm HelpBot, your IT support assistant. How can I help you today?",
       timestamp: new Date(),
     },
   ]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -73,9 +40,9 @@ export default function HelpBot() {
     }
   }, [isOpen, messages]);
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     const trimmed = input.trim();
-    if (!trimmed) return;
+    if (!trimmed || isTyping) return;
 
     const userMsg: Message = {
       id: `u-${Date.now()}`,
@@ -87,17 +54,37 @@ export default function HelpBot() {
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsTyping(true);
+    setError(null);
 
-    setTimeout(() => {
+    try {
+      const history = messages.map((m) => ({ role: m.role, text: m.text }));
+
+      const response = await fetch("/api/chatbot", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: trimmed, history }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `Server error: ${response.status}`);
+      }
+
+      const data = await response.json();
       const botMsg: Message = {
         id: `b-${Date.now()}`,
         role: "bot",
-        text: getBotReply(trimmed),
+        text: data.reply,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, botMsg]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
       setIsTyping(false);
-    }, 800 + Math.random() * 400);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -108,7 +95,6 @@ export default function HelpBot() {
     <div className="fixed bottom-4 left-4 right-4 z-50 flex flex-col items-end gap-3 sm:left-auto sm:right-6">
       {isOpen && (
         <div className="flex w-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900 sm:w-96">
-          {/* Header */}
           <div className="flex items-center justify-between bg-foreground px-4 py-3">
             <div className="flex items-center gap-2.5">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
@@ -152,7 +138,6 @@ export default function HelpBot() {
             </button>
           </div>
 
-          {/* Messages */}
           <div className="flex h-80 flex-col gap-3 overflow-y-auto p-4">
             {messages.map((msg) => (
               <div
@@ -162,7 +147,7 @@ export default function HelpBot() {
                 }`}
               >
                 <div
-                  className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                  className={`max-w-[80%] whitespace-pre-line rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                     msg.role === "user"
                       ? "rounded-br-sm bg-foreground text-background"
                       : "rounded-bl-sm bg-zinc-100 text-foreground dark:bg-zinc-800"
@@ -192,10 +177,17 @@ export default function HelpBot() {
               </div>
             )}
 
+            {error && (
+              <div className="flex items-start">
+                <div className="rounded-2xl rounded-bl-sm bg-red-50 px-4 py-3 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
+                  {error}
+                </div>
+              </div>
+            )}
+
             <div ref={bottomRef} />
           </div>
 
-          {/* Quick suggestions */}
           <div className="flex gap-2 overflow-x-auto border-t border-zinc-100 px-4 py-2 dark:border-zinc-800">
             {["VPN issue", "Reset password", "New ticket"].map((suggestion) => (
               <button
@@ -211,7 +203,6 @@ export default function HelpBot() {
             ))}
           </div>
 
-          {/* Input */}
           <div className="flex items-center gap-2 border-t border-zinc-100 px-4 py-3 dark:border-zinc-800">
             <input
               ref={inputRef}
@@ -220,11 +211,12 @@ export default function HelpBot() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask HelpBot..."
-              className="flex-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800 dark:placeholder-zinc-500"
+              disabled={isTyping}
+              className="flex-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800 dark:placeholder-zinc-500 disabled:opacity-50"
             />
             <button
               onClick={sendMessage}
-              disabled={!input.trim()}
+              disabled={!input.trim() || isTyping}
               className="flex h-9 w-9 items-center justify-center rounded-lg bg-foreground text-background transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-30"
               aria-label="Send message"
             >
@@ -246,7 +238,6 @@ export default function HelpBot() {
         </div>
       )}
 
-      {/* Toggle button */}
       <button
         onClick={() => setIsOpen((prev) => !prev)}
         className="flex h-14 w-14 items-center justify-center rounded-full bg-foreground text-background shadow-lg transition-transform hover:scale-105 hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2"

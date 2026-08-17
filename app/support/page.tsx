@@ -1,15 +1,20 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import TicketDetailModal from "./components/TicketDetailModal";
+import AddUserModal from "./components/AddUserModal";
 import { Ticket, SupportStaff, TicketStatus, TicketHistoryEntry } from "./types";
 import { toStaff, toHistoryEntry, toSupportTicket } from "../types/mappers";
 import { useAuth } from "@/context/AuthContext";
 import { FORBIDDEN_ROUTE } from "@/context/authTypes";
 import SignOutButton from "@/components/SignOutButton";
-import Loading from "@/components/Loading";
+import { SupportSkeleton } from "@/components/skeleton";
 import { createClient } from "@/lib/supabase/client";
+import { logActivity } from "@/lib/activity";
+import ProfileSettingsModal from "../settings/components/ProfileSettingsModal";
+import ForgotPasswordModal from "../settings/components/ForgotPasswordModal";
+import ChatPanel from "../chat/components/ChatPanel";
 
 const supabase = createClient();
 
@@ -122,12 +127,75 @@ export default function SupportDashboard() {
       active = false;
     };
   }, [user?.email]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const refresh = async () => {
+      if (!user?.email) return;
+      try {
+        const [{ data: ticketsData }, { data: staffData }] = await Promise.all([
+          supabase
+            .from("tickets")
+            .select("*")
+            .order("created_at", { ascending: false }),
+          supabase.from("support_staff").select("*").order("name"),
+        ]);
+        if (!mounted) return;
+        if (ticketsData) {
+          const byTicket = new Map<string, TicketHistoryEntry[]>();
+          for (const h of ticketsData) {
+            const key = String(h.id);
+            byTicket.set(key, []);
+          }
+          setTickets(
+            ticketsData.map((r) =>
+              toSupportTicket(r, byTicket.get(String(r.id)) ?? [])
+            ),
+          );
+        }
+        if (staffData) setStaffList(staffData.map((r) => toStaff(r)));
+      } finally {
+        if (mounted) setIsLoadingStaff(false);
+      }
+    };
+
+    refresh();
+
+    const channels = [
+      supabase.channel("realtime-support-tickets").on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tickets" },
+        () => {
+          refresh();
+        }
+      ),
+      supabase.channel("realtime-support-staff").on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "support_staff" },
+        () => {
+          refresh();
+        }
+      ),
+    ];
+
+    channels.forEach((channel) => channel.subscribe());
+
+    return () => {
+      mounted = false;
+      channels.forEach((channel) => supabase.removeChannel(channel));
+    };
+  }, [user?.email]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<TicketStatus | "all">("all");
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [draftStatus, setDraftStatus] = useState<Ticket["status"]>("open");
   const [draftNotes, setDraftNotes] = useState("");
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const saved = localStorage.getItem("theme");
@@ -217,6 +285,7 @@ export default function SupportDashboard() {
                 ...(t.history ?? []),
                 {
                   id: historyId,
+                  ticketId,
                   status,
                   note: resolutionNotes,
                   by: currentStaff!.id,
@@ -227,6 +296,12 @@ export default function SupportDashboard() {
           : t,
       ),
     );
+    await logActivity({
+      action: "ticket_updated",
+      target_type: "ticket",
+      target_id: ticketId,
+      details: `Status changed to ${status}${resolutionNotes ? `: ${resolutionNotes}` : ""}`,
+    });
   };
 
   const openTicket = (ticket: Ticket) => {
@@ -236,15 +311,46 @@ export default function SupportDashboard() {
     setIsDetailOpen(true);
   };
 
-  const closeDetail = () => {
+  const closeDetail = useCallback(() => {
     setIsDetailOpen(false);
     setSelectedTicket(null);
-  };
+  }, []);
 
   const saveTicketUpdate = () => {
     if (!selectedTicket) return;
     updateTicketStatus(selectedTicket.id, draftStatus, draftNotes);
     closeDetail();
+  };
+
+  const handleUserAdded = (user: { id: string; name: string; email: string; role: string }) => {
+    setTickets((prev) => {
+      const maxNum = prev.reduce((max, t) => {
+        const match = t.id.match(/(\d+)$/);
+        if (match) return Math.max(max, parseInt(match[1], 10));
+        return max;
+      }, 0);
+      const nextId = `TK-${String(maxNum + 1).padStart(2, "0")}`;
+      return [
+        ...prev,
+        {
+          id: nextId,
+          subject: "New user account created",
+          category: "General",
+          priority: "low",
+          status: "open",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          description: `User account created for ${user.name} (${user.email}) with role: ${user.role}`,
+          submittedBy: currentStaff?.email,
+        } as Ticket,
+      ];
+    });
+    logActivity({
+      action: "user_created",
+      target_type: "user",
+      target_id: user.id,
+      details: `Created user account for ${user.email}`,
+    });
   };
 
   const toggleTheme = () => {
@@ -267,12 +373,12 @@ export default function SupportDashboard() {
     }
   }, [user, loading, router]);
 
-  if (loading) return <Loading />;
+  if (loading) return <SupportSkeleton />;
   if (!user || user.role !== "support") {
-    return <Loading />;
+    return <SupportSkeleton />;
   }
 
-  if (isLoadingStaff || !currentStaff) return <Loading />;
+  if (isLoadingStaff || !currentStaff) return <SupportSkeleton />;
 
   return (
     <div className="min-h-screen bg-background">
@@ -315,6 +421,63 @@ export default function SupportDashboard() {
               <span className="hidden text-sm font-medium text-foreground sm:inline">
                 {currentStaff.name}
               </span>
+              <button
+                onClick={() => setIsAddUserOpen(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M18 7.5v6m0 0v6m0-6h6m-6 0H6"
+                  />
+                </svg>
+                <span className="hidden sm:inline">Add User</span>
+              </button>
+              <button
+                onClick={() => setIsProfileOpen(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.25h15a1.5 1.5 0 001.5-1.5V19a5.25 5.25 0 00-10.5 0v.75a1.5 1.5 0 01-1.5 1.5H4.5z"
+                  />
+                </svg>
+                <span className="hidden sm:inline">Profile</span>
+              </button>
+              <button
+                onClick={() => setIsChatOpen(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 013 21V12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
+                  />
+                </svg>
+                <span className="hidden sm:inline">Chat</span>
+              </button>
               <button
                 onClick={toggleTheme}
                 className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -592,6 +755,69 @@ export default function SupportDashboard() {
         onSave={saveTicketUpdate}
         getAvatarColor={getAvatarColor}
       />
+      <AddUserModal
+        isOpen={isAddUserOpen}
+        onClose={() => setIsAddUserOpen(false)}
+        onAdded={handleUserAdded}
+      />
+      {isProfileOpen && (
+        <ProfileSettingsModal
+          isOpen={isProfileOpen}
+          onClose={() => setIsProfileOpen(false)}
+          initialName={currentStaff.name}
+          initialEmail={currentStaff.email}
+        />
+      )}
+      {isForgotPasswordOpen && (
+        <ForgotPasswordModal
+          isOpen={isForgotPasswordOpen}
+          onClose={() => setIsForgotPasswordOpen(false)}
+        />
+      )}
+      {isChatOpen && (
+        <ChatPanel
+          currentUser={{
+            id: user?.id || currentStaff.id,
+            name: currentStaff.name,
+            email: currentStaff.email,
+            role: "support",
+          }}
+          getRecipients={async () => {
+            const { data: users } = await supabase
+              .from("accounts")
+              .select("id, name, email, role")
+              .neq("role", "superadmin");
+            const { data: staff } = await supabase
+              .from("support_staff")
+              .select("id, name, email, role")
+              .eq("active", true);
+            const emails = (staff || []).map((s) => s.email);
+            const { data: staffAccounts } = emails.length
+              ? await supabase
+                  .from("accounts")
+                  .select("id, email")
+                  .in("email", emails)
+              : { data: [] as Array<{ id: string; email: string }> };
+            const staffAccountMap = new Map((staffAccounts || []).map((a) => [a.email, a.id]));
+            const mappedStaff = (staff || []).map((s) => ({
+              id: staffAccountMap.get(s.email) || s.id,
+              name: s.name,
+              email: s.email,
+              role: s.role,
+            }));
+            const combined = [
+              ...(users || []),
+              ...mappedStaff,
+            ];
+            const unique = combined.filter(
+              (u, i, arr) => i === arr.findIndex((x) => x.id === u.id)
+            );
+            return unique.filter((u) => u.id !== (user?.id || currentStaff.id));
+          }}
+          title="Messages"
+          onClose={() => setIsChatOpen(false)}
+        />
+      )}
     </div>
   );
 }
