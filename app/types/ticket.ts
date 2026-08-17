@@ -20,6 +20,13 @@ export interface Ticket {
   description: string;
   submittedBy?: string;
   assignedTo?: string;
+  assignedStaff?: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    avatar: string;
+  };
   resolutionNotes?: string;
   history?: TicketHistoryEntry[];
 }

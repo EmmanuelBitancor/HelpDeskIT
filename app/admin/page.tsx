@@ -6,8 +6,10 @@ import StaffModal from "./components/StaffModal";
 import { useAuth } from "@/context/AuthContext";
 import { FORBIDDEN_ROUTE } from "@/context/authTypes";
 import SignOutButton from "@/components/SignOutButton";
-import Loading from "@/components/Loading";
+import { AdminSkeleton } from "@/components/skeleton";
 import { createClient } from "@/lib/supabase/client";
+import { logActivity } from "@/lib/activity";
+import ChatPanel from "../chat/components/ChatPanel";
 import type { Ticket, SupportStaff, TicketStatus, TicketPriority } from "../types/ticket";
 import { toAdminTicket, toStaff } from "../types/mappers";
 
@@ -83,8 +85,10 @@ export default function AdminDashboard() {
     name: "",
     email: "",
     role: "",
+    customRole: "",
   });
   const [staffFormError, setStaffFormError] = useState<string | null>(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const saved = localStorage.getItem("theme");
@@ -154,7 +158,7 @@ export default function AdminDashboard() {
       if (e.key === "Escape") {
         setIsStaffFormOpen(false);
         setEditingStaff(null);
-        setStaffForm({ name: "", email: "", role: "" });
+        setStaffForm({ name: "", email: "", role: "", customRole: "" });
         return;
       }
       if (e.key !== "Tab") return;
@@ -218,6 +222,50 @@ export default function AdminDashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    const refresh = async () => {
+      try {
+        const [{ data: ticketsData }, { data: staffData }] = await Promise.all([
+          supabase.from("tickets").select("*").order("created_at", { ascending: false }),
+          supabase.from("support_staff").select("*").order("name"),
+        ]);
+        if (!mounted) return;
+        if (ticketsData) setTickets(ticketsData.map((r) => toAdminTicket(r)));
+        if (staffData) setStaffList(staffData.map((r) => toStaff(r)));
+      } finally {
+        if (mounted) setIsLoading(false);
+      }
+    };
+
+    refresh();
+
+    const channels = [
+      supabase.channel("realtime-admin-tickets").on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tickets" },
+        () => {
+          refresh();
+        }
+      ),
+      supabase.channel("realtime-admin-staff").on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "support_staff" },
+        () => {
+          refresh();
+        }
+      ),
+    ];
+
+    channels.forEach((channel) => channel.subscribe());
+
+    return () => {
+      mounted = false;
+      channels.forEach((channel) => supabase.removeChannel(channel));
+    };
+  }, []);
+
   const filteredTickets = useMemo(() => {
     const query = search.toLowerCase().trim();
     const base = selectedStaff
@@ -278,18 +326,27 @@ export default function AdminDashboard() {
         ? { ...prev, assignedTo: staffId || undefined, updatedAt: now }
         : prev,
     );
+    const staff = staffList.find((s) => s.id === staffId);
+    await logActivity({
+      action: "ticket_assigned",
+      target_type: "ticket",
+      target_id: ticketId,
+      details: staff
+        ? `Assigned to ${staff.name}`
+        : "Unassigned from staff",
+    });
   };
 
   const openAddStaff = () => {
     setEditingStaff(null);
-    setStaffForm({ name: "", email: "", role: "" });
+    setStaffForm({ name: "", email: "", role: "", customRole: "" });
     setIsStaffFormOpen(true);
     setIsStaffModalOpen(false);
   };
 
   const openEditStaff = (staff: SupportStaff) => {
     setEditingStaff(staff);
-    setStaffForm({ name: staff.name, email: staff.email, role: staff.role });
+    setStaffForm({ name: staff.name, email: staff.email, role: staff.role, customRole: "" });
     setIsStaffFormOpen(true);
     setIsStaffModalOpen(false);
   };
@@ -299,16 +356,16 @@ export default function AdminDashboard() {
     if (
       !staffForm.name.trim() ||
       !staffForm.email.trim() ||
-      !staffForm.role.trim()
+      (!staffForm.role.trim() && !staffForm.customRole.trim())
     )
       return;
 
+    const name = staffForm.name.trim();
+    const email = staffForm.email.trim();
+    const roleTitle = staffForm.customRole.trim() || staffForm.role.trim();
+
     if (editingStaff) {
-      const payload = {
-        name: staffForm.name.trim(),
-        email: staffForm.email.trim(),
-        role: staffForm.role.trim(),
-      };
+      const payload = { name, email, role: roleTitle };
       const { error } = await supabase
         .from("support_staff")
         .update(payload)
@@ -320,14 +377,26 @@ export default function AdminDashboard() {
       setStaffList((prev) =>
         prev.map((s) => (s.id === editingStaff.id ? { ...s, ...payload } : s)),
       );
+      await supabase
+        .from("accounts")
+        .upsert(
+          { email, name, role: "support", avatar: getInitials(name) },
+          { onConflict: "email" }
+        );
+      await logActivity({
+        action: "staff_updated",
+        target_type: "staff",
+        target_id: editingStaff.id,
+        details: `Updated staff: ${name} (${email})`,
+      });
     } else {
       const id = `staff-${Date.now()}`;
       const newStaff: SupportStaff = {
         id,
-        name: staffForm.name.trim(),
-        email: staffForm.email.trim(),
-        role: staffForm.role.trim(),
-        avatar: getInitials(staffForm.name.trim()),
+        name,
+        email,
+        role: roleTitle,
+        avatar: getInitials(name),
         active: true,
       };
       const { error } = await supabase.from("support_staff").insert({
@@ -343,10 +412,22 @@ export default function AdminDashboard() {
         return;
       }
       setStaffList((prev) => [...prev, newStaff]);
+      await supabase
+        .from("accounts")
+        .upsert(
+          { email, name, role: "support", avatar: getInitials(name) },
+          { onConflict: "email" }
+        );
+      await logActivity({
+        action: "staff_created",
+        target_type: "staff",
+        target_id: id,
+        details: `Created staff: ${name} (${email})`,
+      });
     }
 
     setIsStaffFormOpen(false);
-    setStaffForm({ name: "", email: "", role: "" });
+    setStaffForm({ name: "", email: "", role: "", customRole: "" });
     setEditingStaff(null);
   };
 
@@ -365,15 +446,29 @@ export default function AdminDashboard() {
     setStaffList((prev) =>
       prev.map((s) => (s.id === staffId ? { ...s, active: next } : s)),
     );
+    await logActivity({
+      action: "staff_status_changed",
+      target_type: "staff",
+      target_id: staffId,
+      details: `Set ${target.name} to ${next ? "active" : "inactive"}`,
+    });
   };
 
   const deleteStaff = async (staffId: string) => {
+    const target = staffList.find((s) => s.id === staffId);
     const { error } = await supabase.rpc("delete_staff", {
       staff_id: staffId,
     });
     if (error) {
       console.error("Failed to delete staff", error);
       return;
+    }
+    if (target?.email) {
+      await supabase
+        .from("accounts")
+        .delete()
+        .eq("email", target.email)
+        .neq("role", "superadmin");
     }
     setStaffList((prev) => prev.filter((s) => s.id !== staffId));
     setTickets((prev) =>
@@ -384,6 +479,14 @@ export default function AdminDashboard() {
       ),
     );
     if (selectedStaff?.id === staffId) setSelectedStaff(null);
+    if (target) {
+      await logActivity({
+        action: "staff_deleted",
+        target_type: "staff",
+        target_id: staffId,
+        details: `Deleted staff: ${target.name} (${target.email})`,
+      });
+    }
   };
 
   const toggleTheme = () => {
@@ -419,12 +522,12 @@ export default function AdminDashboard() {
     }
   }, [user, loading, router]);
 
-  if (loading) return <Loading />;
+  if (loading) return <AdminSkeleton />;
   if (!user || user.role !== "admin") {
-    return <Loading />;
+    return <AdminSkeleton />;
   }
 
-  if (isLoading) return <Loading />;
+  if (isLoading) return <AdminSkeleton />;
 
   return (
     <div className="min-h-screen bg-background">
@@ -475,6 +578,25 @@ export default function AdminDashboard() {
                   />
                 </svg>
                 <span className="hidden sm:inline">Manage Staff</span>
+              </button>
+              <button
+                onClick={() => setIsChatOpen(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 013 21V12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
+                  />
+                </svg>
+                <span className="hidden sm:inline">Chat</span>
               </button>
               <button
                 onClick={toggleTheme}
@@ -862,8 +984,8 @@ export default function AdminDashboard() {
                 <h4 className="text-sm font-semibold text-foreground">
                   {selectedTicket.subject}
                 </h4>
-                <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-                  {selectedTicket.description}
+                <p className="mt-2 whitespace-pre-line text-sm text-zinc-600 dark:text-zinc-400">
+                  {typeof selectedTicket.description === 'string' ? selectedTicket.description.replace(/\s*\|\s*/g, '\n') : selectedTicket.description}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -964,7 +1086,7 @@ export default function AdminDashboard() {
                 onClick={() => {
                   setIsStaffFormOpen(false);
                   setEditingStaff(null);
-                  setStaffForm({ name: "", email: "", role: "" });
+                  setStaffForm({ name: "", email: "", role: "", customRole: "" });
                 }}
                 className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
               >
@@ -1020,23 +1142,45 @@ export default function AdminDashboard() {
                   placeholder="Enter email address"
                 />
               </div>
-              <div>
+               <div>
                 <label
                   htmlFor="staffRole"
                   className="block text-sm font-medium text-foreground"
                 >
                   Role / Title
                 </label>
-                <input
-                  id="staffRole"
-                  type="text"
-                  value={staffForm.role}
-                  onChange={(e) =>
-                    setStaffForm({ ...staffForm, role: e.target.value })
-                  }
-                  className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                  placeholder="e.g. Senior IT Support"
-                />
+                {staffForm.role === "__other__" ? (
+                  <input
+                    id="staffRole"
+                    type="text"
+                    value={staffForm.customRole}
+                    onChange={(e) =>
+                      setStaffForm({ ...staffForm, customRole: e.target.value })
+                    }
+                    className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
+                    placeholder="Enter custom role"
+                  />
+                ) : (
+                  <select
+                    id="staffRole"
+                    value={staffForm.role}
+                    onChange={(e) =>
+                      setStaffForm({ ...staffForm, role: e.target.value, customRole: "" })
+                    }
+                    className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
+                  >
+                    <option value="">Select a role</option>
+                    <option value="IT Support Specialist">IT Support Specialist</option>
+                    <option value="Senior IT Support">Senior IT Support</option>
+                    <option value="Network Administrator">Network Administrator</option>
+                    <option value="Hardware Support">Hardware Support</option>
+                    <option value="Software Support">Software Support</option>
+                    <option value="System Administrator">System Administrator</option>
+                    <option value="Help Desk Technician">Help Desk Technician</option>
+                    <option value="Field Technician">Field Technician</option>
+                    <option value="__other__">Other</option>
+                  </select>
+                )}
               </div>
               {staffFormError && (
                 <p role="alert" className="text-sm text-red-600 dark:text-red-400">{staffFormError}</p>
@@ -1047,7 +1191,7 @@ export default function AdminDashboard() {
                   onClick={() => {
                     setIsStaffFormOpen(false);
                     setEditingStaff(null);
-                    setStaffForm({ name: "", email: "", role: "" });
+                    setStaffForm({ name: "", email: "", role: "", customRole: "" });
                   }}
                   className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
@@ -1079,6 +1223,46 @@ export default function AdminDashboard() {
           onDeleteStaff={deleteStaff}
           getStaffWorkload={getStaffWorkload}
           getAvatarColor={getAvatarColor}
+        />
+      )}
+      {isChatOpen && (
+        <ChatPanel
+          currentUser={{
+            id: user?.id || "",
+            name: user?.name || "",
+            email: user?.email || "",
+            role: user?.role || "admin",
+          }}
+          getRecipients={async () => {
+            const { data: superadmin } = await supabase
+              .from("accounts")
+              .select("id, name, email, role")
+              .eq("role", "superadmin");
+            const { data: staff } = await supabase
+              .from("support_staff")
+              .select("id, name, email, role")
+              .eq("active", true);
+            const emails = (staff || []).map((s) => s.email);
+            const { data: staffAccounts } = emails.length
+              ? await supabase
+                  .from("accounts")
+                  .select("id, email")
+                  .in("email", emails)
+              : { data: [] as Array<{ id: string; email: string }> };
+            const staffAccountMap = new Map((staffAccounts || []).map((a) => [a.email, a.id]));
+            const mappedStaff = (staff || []).map((s) => ({
+              id: staffAccountMap.get(s.email) || s.id,
+              name: s.name,
+              email: s.email,
+              role: s.role,
+            }));
+            return [
+              ...(superadmin || []),
+              ...mappedStaff,
+            ];
+          }}
+          title="Messages"
+          onClose={() => setIsChatOpen(false)}
         />
       )}
     </div>
