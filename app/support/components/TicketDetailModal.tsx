@@ -70,6 +70,7 @@ export default function TicketDetailModal({
     if (!isOpen) return;
 
     const previousFocus = document.activeElement as HTMLElement;
+    const dialogEl = dialogRef.current;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -102,7 +103,9 @@ export default function TicketDetailModal({
 
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      previousFocus.focus();
+      if (previousFocus && document.activeElement === dialogEl) {
+        previousFocus.focus();
+      }
     };
   }, [isOpen, onClose, getFocusableElements]);
 
@@ -217,8 +220,8 @@ export default function TicketDetailModal({
           <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
             Description
           </p>
-          <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-300">
-            {ticket.description}
+          <p className="mt-1 whitespace-pre-line text-sm text-zinc-700 dark:text-zinc-300">
+            {typeof ticket.description === 'string' ? ticket.description.replace(/\s*\|\s*/g, '\n') : ticket.description}
           </p>
         </div>
 
