@@ -64,6 +64,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    await supabase
+      .from("messages")
+      .update({ read_at: new Date().toISOString() })
+      .eq("conversation_id", conversationId)
+      .neq("sender_id", account.id)
+      .is("read_at", null);
+
     return NextResponse.json({ messages: messages || [] });
   } catch (error) {
     console.error("Messages fetch error:", error);

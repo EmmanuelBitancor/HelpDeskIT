@@ -139,10 +139,8 @@ export async function POST(request: NextRequest) {
       "Format your response in clean, readable text: " +
       "- Use simple bullet points with hyphens (-) instead of asterisks (*) " +
       "- When listing steps or items, put each one on its own line " +
-      "- Do not use bold (**text**) or italics (*text*) markdown formatting " +
+      "- Do not use bold (**text**) or italics (*text**) markdown formatting " +
       "- Keep responses concise, helpful, and professional.";
-
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent`;
 
     const contents: { role: string; parts: { text: string }[] }[] = [];
 
@@ -174,48 +172,107 @@ export async function POST(request: NextRequest) {
       parts: [{ text: message }],
     });
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+    const models = [
+      "gemini-3.6-flash",
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+      "gemini-1.5-flash",
+      "gemini-1.5-pro",
+    ];
 
-    let response: Response;
-    try {
-      response = await fetch(geminiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          contents,
-          systemInstruction: {
-            parts: [{ text: systemPrompt }],
-          },
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 512,
-          },
-        }),
-      });
-    } catch (fetchError) {
-      clearTimeout(timeoutId);
-      if ((fetchError as Error).name === "AbortError") {
-        return NextResponse.json(
-          { error: "Request timed out. Please try again." },
-          { status: 504 }
-        );
+    const apiVersions = ["v1beta", "v1"];
+
+    let response: Response = new Response(null, { status: 500 });
+    let lastError: { status: number; body: string } | null = null;
+
+    for (const apiVersion of apiVersions) {
+      for (const model of models) {
+        const geminiUrl = `https://generativelanguage.googleapis.com/${apiVersion}/models/${model}:generateContent?key=${apiKey}`;
+        console.log(`[chatbot] trying ${apiVersion}/${model}`);
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
+        try {
+          response = await fetch(geminiUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            signal: controller.signal,
+            body: JSON.stringify({
+              contents,
+              systemInstruction: {
+                parts: [{ text: systemPrompt }],
+              },
+              generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 512,
+              },
+            }),
+          });
+          clearTimeout(timeoutId);
+
+          if (response.ok) {
+            console.log(`[chatbot] success with ${apiVersion}/${model}`);
+            break;
+          }
+
+          const errorData = await response.text();
+          console.error(`[chatbot] ${apiVersion}/${model} failed:`, response.status, errorData);
+          lastError = { status: response.status, body: errorData };
+
+          if (response.status === 404) continue;
+          response = new Response(null, { status: response.status });
+          break;
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          console.error(`[chatbot] ${apiVersion}/${model} network error:`, fetchError);
+          lastError = { status: 500, body: String(fetchError) };
+          response = new Response(null, { status: 500 });
+          break;
+        }
       }
-      throw fetchError;
-    } finally {
-      clearTimeout(timeoutId);
+
+      if (response.ok) break;
     }
 
     if (!response.ok) {
-      const errorData = await response.text();
-      console.error("Gemini API error:", response.status, errorData);
+      const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+      console.log("[chatbot] all models failed, checking available models...");
+      try {
+        const listResp = await fetch(listUrl);
+        if (listResp.ok) {
+          const listData = await listResp.json();
+          const availableModels = (listData.models || [])
+            .filter((m: { name: string; supportedActions?: string[] }) => {
+              const name = m.name || "";
+              return (
+                name.includes("generateContent") &&
+                (m.supportedActions?.includes("generateContent") ?? true)
+              );
+            })
+            .map((m: { name: string }) => m.name);
+          console.log("[chatbot] available models:", availableModels);
+          lastError = {
+            status: lastError?.status ?? 404,
+            body: `No compatible models found. Available: ${availableModels.slice(0, 5).join(", ")}${availableModels.length > 5 ? "..." : ""}`,
+          };
+        }
+      } catch {
+        // ignore list error
+      }
+
+      const status = lastError?.status ?? 500;
+      const body = lastError?.body ?? "Unknown error";
+      console.error("[chatbot] all models failed, last error:", status, body);
+      const upstreamError = status >= 500 ? "AI service unavailable" : "AI request failed";
       return NextResponse.json(
-        { error: "Failed to get response from AI service" },
-        { status: 502 }
+        {
+          error: upstreamError,
+          details: process.env.NODE_ENV === "development" ? body : undefined,
+        },
+        { status: status >= 500 ? 502 : status }
       );
     }
 
