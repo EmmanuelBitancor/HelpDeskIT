@@ -55,6 +55,7 @@ export default function DashboardPage() {
   const [isKbOpen, setIsKbOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatTicket, setChatTicket] = useState<{ id: string; subject: string; assignedStaff: Ticket["assignedStaff"] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
 
@@ -80,7 +81,7 @@ export default function DashboardPage() {
     if (!user?.email) return;
     let active = true;
     (async () => {
-      const [{ data: ticketsData }, { data: staffData }] = await Promise.all([
+      const [{ data: ticketsData, error: ticketsError }, { data: staffData, error: staffError }] = await Promise.all([
         supabase
           .from("tickets")
           .select("*")
@@ -89,6 +90,11 @@ export default function DashboardPage() {
         supabase.from("support_staff").select("*"),
       ]);
       if (active) {
+        if (ticketsError || staffError) {
+          console.error("Failed to load dashboard data:", ticketsError ?? staffError);
+          setError(ticketsError?.message ?? staffError?.message ?? "Failed to load data");
+          return;
+        }
         const staffMap = new Map<string, SupportStaff>();
         if (staffData) {
           for (const s of staffData) {
@@ -131,7 +137,7 @@ export default function DashboardPage() {
     let mounted = true;
 
     const refresh = async () => {
-      const [{ data: ticketsData }, { data: staffData }] = await Promise.all([
+      const [{ data: ticketsData, error: ticketsError }, { data: staffData, error: staffError }] = await Promise.all([
         supabase
           .from("tickets")
           .select("*")
@@ -140,6 +146,11 @@ export default function DashboardPage() {
         supabase.from("support_staff").select("*"),
       ]);
       if (!mounted) return;
+      if (ticketsError || staffError) {
+        console.error("Failed to load dashboard data:", ticketsError ?? staffError);
+        setError(ticketsError?.message ?? staffError?.message ?? "Failed to load data");
+        return;
+      }
       const staffMap = new Map<string, SupportStaff>();
       if (staffData) {
         for (const s of staffData) {
@@ -224,7 +235,6 @@ export default function DashboardPage() {
     description: string;
   }): Promise<{ success: boolean; error?: string }> => {
     if (!user?.email) return { success: false, error: "Not authenticated" };
-    const now = new Date().toISOString();
     const description = [
       form.fullname ? `Name: ${form.fullname}` : "",
       form.department ? `Dept: ${form.department}` : "",
@@ -233,25 +243,11 @@ export default function DashboardPage() {
       .filter(Boolean)
       .join("\n");
 
-    const { data: maxRow } = await supabase
-      .from("tickets")
-      .select("id")
-      .order("id", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    let nextNum = 1;
-    if (maxRow?.id) {
-      const match = String(maxRow.id).match(/(\d+)$/);
-      if (match) nextNum = Math.max(nextNum, parseInt(match[1], 10) + 1);
-    }
-
-    const ticketId = `TK-${String(nextNum).padStart(2, "0")}`;
+    const now = new Date().toISOString();
 
     const { data, error } = await supabase
       .from("tickets")
       .insert({
-        id: ticketId,
         subject: form.subject,
         category: form.category,
         priority: form.priority,
@@ -264,17 +260,18 @@ export default function DashboardPage() {
       .select()
       .single();
 
-    if (!error && data) {
-      setTickets((prev) => [toTicket(data), ...prev]);
-      logActivity({
-        action: "ticket_created",
-        target_type: "ticket",
-        target_id: ticketId,
-        details: `Created ticket: ${form.subject}`,
-      });
-      return { success: true };
+    if (error) {
+      return { success: false, error: error.message ?? "Failed to create ticket" };
     }
-    return { success: false, error: error?.message ?? "Failed to create ticket" };
+
+    setTickets((prev) => [toTicket(data), ...prev]);
+    logActivity({
+      action: "ticket_created",
+      target_type: "ticket",
+      target_id: data.id,
+      details: `Created ticket: ${form.subject}`,
+    }).catch(() => {});
+    return { success: true };
   };
 
   const toggleTheme = () => {
@@ -372,6 +369,19 @@ export default function DashboardPage() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+        {error && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400">
+            {error}
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              aria-label="Dismiss error"
+              className="ml-2 text-red-500 hover:text-red-700 dark:hover:text-red-300"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-2xl font-semibold text-foreground">
@@ -647,6 +657,7 @@ export default function DashboardPage() {
             setIsChatOpen(false);
             setChatTicket(null);
           }}
+          ticketId={chatTicket.id}
           ticketSubject={chatTicket.subject}
           currentUser={{
             id: user?.id || "",

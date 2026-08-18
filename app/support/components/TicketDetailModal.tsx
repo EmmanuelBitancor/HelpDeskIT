@@ -56,6 +56,7 @@ export default function TicketDetailModal({
   getAvatarColor,
 }: TicketDetailModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const modalOwnedCloseRef = useRef(false);
 
   const getFocusableElements = useCallback(() => {
     if (!dialogRef.current) return [];
@@ -66,14 +67,20 @@ export default function TicketDetailModal({
     ).filter((el) => !el.hasAttribute("disabled"));
   }, []);
 
+  const closeModal = useCallback(() => {
+    modalOwnedCloseRef.current = true;
+    onClose();
+  }, [onClose]);
+
   useEffect(() => {
     if (!isOpen) return;
 
     const previousFocus = document.activeElement as HTMLElement;
-    const dialogEl = dialogRef.current;
+    modalOwnedCloseRef.current = false;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        modalOwnedCloseRef.current = true;
         onClose();
         return;
       }
@@ -103,7 +110,7 @@ export default function TicketDetailModal({
 
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      if (previousFocus && document.activeElement === dialogEl) {
+      if (modalOwnedCloseRef.current && previousFocus) {
         previousFocus.focus();
       }
     };
@@ -129,7 +136,7 @@ export default function TicketDetailModal({
             {ticket.id}
           </h3>
           <button
-            onClick={onClose}
+            onClick={closeModal}
             className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
           >
             <svg
@@ -315,7 +322,7 @@ export default function TicketDetailModal({
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={closeModal}
               className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
               Cancel
@@ -323,7 +330,10 @@ export default function TicketDetailModal({
             {canEdit && (
               <button
                 type="button"
-                onClick={onSave}
+                onClick={() => {
+                  onSave();
+                  closeModal();
+                }}
                 className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2"
               >
                 Save Changes

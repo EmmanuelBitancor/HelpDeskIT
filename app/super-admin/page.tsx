@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { FORBIDDEN_ROUTE } from "@/context/authTypes";
@@ -693,7 +693,29 @@ function ActivitySection({ activities }: { activities: ActivityLog[] }) {
   const filtered =
     filter === "all" ? activities : activities.filter((a) => a.action === filter);
 
-  const uniqueActions = Array.from(new Set(activities.map((a) => a.action)));
+  const ALLOWED_ACTIONS = new Set([
+    "login",
+    "login_failed",
+    "logout",
+    "user_approved",
+    "user_status_changed",
+    "user_created",
+    "staff_created",
+    "staff_updated",
+    "staff_status_changed",
+    "staff_deleted",
+    "ticket_created",
+    "ticket_updated",
+    "ticket_assigned",
+  ]);
+
+  const uniqueActions = Array.from(
+    new Set(
+      activities
+        .map((a) => a.action)
+        .filter((action) => ALLOWED_ACTIONS.has(action))
+    )
+  );
 
   return (
     <div className="space-y-4">
@@ -770,6 +792,7 @@ function SessionsSection() {
   const [sessions, setSessions] = useState<
     Array<{
       id: string;
+      user_id: string;
       user_email: string;
       user_name: string;
       user_role: string;
@@ -780,6 +803,8 @@ function SessionsSection() {
   >([]);
   const [loading, setLoading] = useState(true);
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [revokingAll, setRevokingAll] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -787,6 +812,10 @@ function SessionsSection() {
       try {
         const res = await fetch("/api/sessions");
         const data = await res.json();
+        if (!res.ok) {
+          if (active) setError(data.error || "Failed to load sessions");
+          return;
+        }
         if (active && data.sessions) setSessions(data.sessions);
       } catch {
         // ignore
@@ -801,12 +830,19 @@ function SessionsSection() {
 
   const revokeSession = async (sessionId: string) => {
     setRevoking(sessionId);
+    setError(null);
     try {
-      await fetch("/api/sessions", {
+      const res = await fetch("/api/sessions", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: sessionId }),
       });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setError(data.error || "Failed to revoke session");
+        setRevoking(null);
+        return;
+      }
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
     } catch {
       // ignore
@@ -815,16 +851,24 @@ function SessionsSection() {
     }
   };
 
-  const revokeAllUserSessions = async (userEmail: string) => {
+  const revokeAllUserSessions = async (userId: string) => {
+    setRevokingAll(userId);
     try {
-      await fetch("/api/sessions", {
+      const res = await fetch("/api/sessions", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userEmail }),
+        body: JSON.stringify({ user_id: userId }),
       });
-      setSessions((prev) => prev.filter((s) => s.user_email !== userEmail));
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setError(data.error || "Failed to revoke sessions");
+        return;
+      }
+      setSessions((prev) => prev.filter((s) => s.user_id !== userId));
     } catch {
       // ignore
+    } finally {
+      setRevokingAll(null);
     }
   };
 
@@ -839,6 +883,11 @@ function SessionsSection() {
             Sessions stay active until the user logs out. You can revoke any session below.
           </p>
         </div>
+        {error && (
+          <div role="alert" className="px-5 py-3 text-sm text-red-600 dark:text-red-400">
+            {error}
+          </div>
+        )}
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {loading ? (
             <div className="space-y-3 p-4">
@@ -880,11 +929,12 @@ function SessionsSection() {
                   >
                     {revoking === session.id ? "Revoking..." : "Revoke"}
                   </button>
-                  <button
-                    onClick={() => revokeAllUserSessions(session.user_email)}
-                    className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  >
-                    Revoke All
+                    <button
+                      onClick={() => revokeAllUserSessions(session.user_id)}
+                      disabled={revokingAll === session.user_id}
+                      className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 disabled:opacity-50"
+                    >
+                      {revokingAll === session.user_id ? "Revoking..." : "Revoke All"}
                   </button>
                 </div>
               </div>
@@ -1329,111 +1379,133 @@ export default function SuperAdminDashboard() {
     };
   }, [user]);
 
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (!user || user.role !== "superadmin") return;
     let mounted = true;
 
     const refresh = async () => {
-      const [healthRes, usersRes, ticketsRes, logsRes, activityRes] = await Promise.all([
-        supabase
-          .from("system_health")
-          .select("*")
-          .order("recorded_at", { ascending: false })
-          .limit(1),
-        fetch("/api/users").then((res) => res.json()),
-        supabase
-          .from("tickets")
-          .select("*, support_staff!left(name)")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("system_logs")
-          .select("*")
-          .order("timestamp", { ascending: false })
-          .limit(200),
-        supabase
-          .from("activity_logs")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(100),
-      ]);
+      try {
+        const [healthRes, usersRes, ticketsRes, logsRes, activityRes] = await Promise.all([
+          supabase
+            .from("system_health")
+            .select("*")
+            .order("recorded_at", { ascending: false })
+            .limit(1),
+          fetch("/api/users").then(async (res) => {
+            if (!res.ok) {
+              const text = await res.text();
+              throw new Error(text || `Users fetch failed: ${res.status}`);
+            }
+            return res.json();
+          }),
+          supabase
+            .from("tickets")
+            .select("*, support_staff!left(name)")
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("system_logs")
+            .select("*")
+            .order("timestamp", { ascending: false })
+            .limit(200),
+          supabase
+            .from("activity_logs")
+            .select("*")
+            .order("created_at", { ascending: false })
+            .limit(100),
+        ]);
 
-      if (!mounted) return;
-      const firstError =
-        healthRes.error ??
-        (usersRes.error && usersRes.error) ??
-        ticketsRes.error ??
-        logsRes.error ??
-        activityRes.error;
-      if (firstError) {
-        setLoadError(
-          typeof firstError === "string" ? firstError : firstError.message || "Failed to load"
-        );
-        return;
+        if (!mounted) return;
+        const firstError =
+          healthRes.error ??
+          (usersRes.error && usersRes.error) ??
+          ticketsRes.error ??
+          logsRes.error ??
+          activityRes.error;
+        if (firstError) {
+          setLoadError(
+            typeof firstError === "string" ? firstError : firstError.message || "Failed to load"
+          );
+          return;
+        }
+        if (healthRes.data?.length) setHealth(toSystemHealth(healthRes.data[0]));
+        if (usersRes.users) setUsers(usersRes.users);
+        else if (Array.isArray(usersRes)) setUsers(usersRes);
+        if (ticketsRes.data) setTickets(ticketsRes.data.map(toTicket));
+        if (logsRes.data) setLogs(logsRes.data.map(toSystemLog));
+        if (activityRes.data) setActivities(activityRes.data);
+      } catch (err) {
+        if (mounted) {
+          setLoadError(err instanceof Error ? err.message : "Failed to load data");
+        }
       }
-      if (healthRes.data?.length) setHealth(toSystemHealth(healthRes.data[0]));
-      if (usersRes.users) setUsers(usersRes.users);
-      else if (Array.isArray(usersRes)) setUsers(usersRes);
-      if (ticketsRes.data) setTickets(ticketsRes.data.map(toTicket));
-      if (logsRes.data) setLogs(logsRes.data.map(toSystemLog));
-      if (activityRes.data) setActivities(activityRes.data);
     };
 
     refresh();
 
-    const channels = [
-      supabase.channel("realtime-accounts").on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "accounts" },
-        () => {
-          refresh();
-        }
-      ),
-      supabase.channel("realtime-tickets").on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "tickets" },
-        () => {
-          refresh();
-        }
-      ),
-      supabase.channel("realtime-activity").on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "activity_logs" },
-        () => {
-          refresh();
-        }
-      ),
-      supabase.channel("realtime-logs").on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "system_logs" },
-        () => {
-          refresh();
-        }
-      ),
-      supabase.channel("realtime-health").on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "system_health" },
-        () => {
-          refresh();
-        }
-      ),
-    ];
+     const scheduleRefresh = () => {
+       if (debounceTimer.current) clearTimeout(debounceTimer.current);
+       debounceTimer.current = setTimeout(() => {
+         refresh();
+         debounceTimer.current = null;
+       }, 300);
+     };
 
-    channels.forEach((channel) => channel.subscribe());
+     const channels = [
+       supabase.channel("realtime-accounts").on(
+         "postgres_changes",
+         { event: "*", schema: "public", table: "accounts" },
+         scheduleRefresh
+       ),
+       supabase.channel("realtime-tickets").on(
+         "postgres_changes",
+         { event: "*", schema: "public", table: "tickets" },
+         scheduleRefresh
+       ),
+       supabase.channel("realtime-activity").on(
+         "postgres_changes",
+         { event: "*", schema: "public", table: "activity_logs" },
+         scheduleRefresh
+       ),
+       supabase.channel("realtime-logs").on(
+         "postgres_changes",
+         { event: "*", schema: "public", table: "system_logs" },
+         scheduleRefresh
+       ),
+       supabase.channel("realtime-health").on(
+         "postgres_changes",
+         { event: "*", schema: "public", table: "system_health" },
+         scheduleRefresh
+       ),
+     ];
 
-    return () => {
-      mounted = false;
-      channels.forEach((channel) => supabase.removeChannel(channel));
-    };
+     channels.forEach((channel) => channel.subscribe());
+
+     return () => {
+       mounted = false;
+       if (debounceTimer.current) clearTimeout(debounceTimer.current);
+       channels.forEach((channel) => supabase.removeChannel(channel));
+     };
   }, [user]);
 
   const handleApproveUser = async (id: string) => {
     setActionError(null);
-    const { error, count } = await supabase
+    const { error } = await supabase
       .from("accounts")
       .update({ status: "active" })
       .eq("id", id);
-    if (error || count !== 1) {
-      setActionError(error?.message ?? "Failed to approve user");
+    if (error) {
+      setActionError(error.message);
+      return;
+    }
+    const { data: verify } = await supabase
+      .from("accounts")
+      .select("status")
+      .eq("id", id)
+      .maybeSingle();
+    if (verify?.status !== "active") {
+      setActionError("Failed to approve user");
       return;
     }
     setUsers((prev) =>
@@ -1452,12 +1524,21 @@ export default function SuperAdminDashboard() {
     const current = users.find((u) => u.id === id);
     if (!current) return;
     const next = current.status === "active" ? "suspended" : "active";
-    const { error, count } = await supabase
+    const { error } = await supabase
       .from("accounts")
       .update({ status: next })
       .eq("id", id);
-    if (error || count !== 1) {
-      setActionError(error?.message ?? "Failed to update user status");
+    if (error) {
+      setActionError(error.message);
+      return;
+    }
+    const { data: verify } = await supabase
+      .from("accounts")
+      .select("status")
+      .eq("id", id)
+      .maybeSingle();
+    if (verify?.status !== next) {
+      setActionError("Failed to update user status");
       return;
     }
     setUsers((prev) =>
@@ -1805,16 +1886,22 @@ export default function SuperAdminDashboard() {
                   .in("email", emails)
               : { data: [] as Array<{ id: string; email: string }> };
             const staffAccountMap = new Map((staffAccounts || []).map((a) => [a.email, a.id]));
-            const mappedStaff = (staff || []).map((s) => ({
-              id: staffAccountMap.get(s.email) || s.id,
-              name: s.name,
-              email: s.email,
-              role: s.role,
-            }));
-            return [
-              ...(admins || []),
-              ...mappedStaff,
-            ];
+            const mappedStaff = (staff || [])
+              .filter((s) => staffAccountMap.has(s.email))
+              .map((s) => ({
+                id: staffAccountMap.get(s.email)!,
+                name: s.name,
+                email: s.email,
+                role: s.role,
+              }));
+            const recipientMap = new Map<string, { id: string; name: string; email: string; role: string }>();
+            for (const admin of admins || []) {
+              recipientMap.set(admin.id, admin);
+            }
+            for (const staffMember of mappedStaff) {
+              recipientMap.set(staffMember.id, staffMember);
+            }
+            return Array.from(recipientMap.values());
           }}
           title="Messages"
           onClose={() => setIsChatOpen(false)}

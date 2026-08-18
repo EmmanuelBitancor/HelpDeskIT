@@ -25,6 +25,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const otherParty = searchParams.get("other_party");
 
+    if (otherParty) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(otherParty)) {
+        return NextResponse.json({ error: "Invalid other_party format" }, { status: 400 });
+      }
+    }
+
     let query = supabase
       .from("conversations")
       .select("*")
@@ -58,7 +65,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { created_for, created_for_role } = body;
+    const { created_for, staff_email, ticket_id } = body;
 
     const supabase = await createClient();
     const {
@@ -79,20 +86,124 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Account not found" }, { status: 404 });
     }
 
-    const targetRole = created_for_role || account.role;
+    let resolvedStaffId: string | null = null;
+    let resolvedStaffRole: string | null = null;
 
-    if (!created_for) {
+    if (ticket_id) {
+      const { data: ticket } = await supabase
+        .from("tickets")
+        .select("assigned_to")
+        .eq("id", ticket_id)
+        .maybeSingle();
+
+      if (!ticket?.assigned_to) {
+        return NextResponse.json(
+          { error: "Ticket has no assigned support" },
+          { status: 400 }
+        );
+      }
+
+      const { data: staffRecord } = await supabase
+        .from("support_staff")
+        .select("email")
+        .eq("id", ticket.assigned_to)
+        .maybeSingle();
+
+      if (!staffRecord?.email) {
+        return NextResponse.json(
+          { error: "Assigned support record not found" },
+          { status: 400 }
+        );
+      }
+
+      const { data: staffAccount } = await supabase
+        .from("accounts")
+        .select("id, role")
+        .eq("email", staffRecord.email)
+        .maybeSingle();
+
+      if (!staffAccount) {
+        return NextResponse.json(
+          { error: "Assigned support account not found" },
+          { status: 400 }
+        );
+      }
+
+      resolvedStaffId = staffAccount.id;
+      resolvedStaffRole = staffAccount.role;
+    } else if (staff_email) {
+      const { data: staffAccount } = await supabase
+        .from("accounts")
+        .select("id, role")
+        .eq("email", staff_email)
+        .maybeSingle();
+
+      if (!staffAccount) {
+        return NextResponse.json(
+          { error: "Support account not found" },
+          { status: 400 }
+        );
+      }
+
+      resolvedStaffId = staffAccount.id;
+      resolvedStaffRole = staffAccount.role;
+    } else if (created_for) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (typeof created_for !== "string" || !uuidRegex.test(created_for)) {
+        return NextResponse.json(
+          { error: "Invalid created_for format" },
+          { status: 400 }
+        );
+      }
+
+      const { data: targetAccount } = await supabase
+        .from("accounts")
+        .select("id, role")
+        .eq("id", created_for)
+        .maybeSingle();
+
+      if (!targetAccount) {
+        return NextResponse.json(
+          { error: "Target account not found" },
+          { status: 400 }
+        );
+      }
+
+      if (account.role !== "support" && !["support", "admin"].includes(targetAccount.role)) {
+        return NextResponse.json(
+          { error: "Forbidden" },
+          { status: 403 }
+        );
+      }
+
+      resolvedStaffId = targetAccount.id;
+      resolvedStaffRole = targetAccount.role;
+    } else {
       return NextResponse.json(
-        { error: "created_for is required" },
+        { error: "created_for, staff_email, or ticket_id is required" },
         { status: 400 }
       );
     }
 
-    if (!targetRole) {
+    const { data: existingConversation, error: existingError } = await supabase
+      .from("conversations")
+      .select("*")
+      .limit(1)
+      .or(
+        `and(created_by.eq.${account.id},created_for.eq.${resolvedStaffId}),and(created_by.eq.${resolvedStaffId},created_for.eq.${account.id})`
+      )
+      .maybeSingle();
+
+    if (existingError) {
+      console.error("Conversation lookup error:", existingError);
       return NextResponse.json(
-        { error: "Unable to determine target role" },
-        { status: 400 }
+        { error: "Failed to check existing conversation" },
+        { status: 500 }
       );
+    }
+
+    if (existingConversation) {
+      return NextResponse.json({ conversation: existingConversation }, { status: 200 });
     }
 
     const conversationId = `conv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -102,9 +213,9 @@ export async function POST(request: NextRequest) {
       .insert({
         id: conversationId,
         created_by: account.id,
-        created_for,
+        created_for: resolvedStaffId,
         created_by_role: account.role,
-        created_for_role: targetRole,
+        created_for_role: resolvedStaffRole,
       })
       .select()
       .single();

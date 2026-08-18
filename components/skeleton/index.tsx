@@ -1,5 +1,5 @@
 function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse rounded-md bg-zinc-200 dark:bg-zinc-700 ${className}`} />;
+  return <div className={`animate-pulse rounded-md bg-zinc-200 motion-reduce:animate-none dark:bg-zinc-700 ${className}`} />;
 }
 
 export { Skeleton };
@@ -7,6 +7,7 @@ export { Skeleton };
 export function DashboardSkeleton() {
   return (
     <div className="min-h-screen bg-background">
+      <div role="status" aria-label="Loading dashboard" className="sr-only">Loading dashboard</div>
       <header className="border-b border-zinc-200 dark:border-zinc-800">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 py-2">
@@ -28,7 +29,7 @@ export function DashboardSkeleton() {
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <Skeleton className="h-8 w-56" />
-            <Skeleton className="mt-2 h-4 w-80" />
+            <Skeleton className="mt-2 h-4 w-full sm:w-80" />
           </div>
           <div className="flex items-center gap-3">
             <Skeleton className="h-10 w-36 rounded-lg" />
@@ -78,6 +79,7 @@ export function DashboardSkeleton() {
 export function SupportSkeleton() {
   return (
     <div className="min-h-screen bg-background">
+      <div role="status" aria-label="Loading support" className="sr-only">Loading support</div>
       <header className="border-b border-zinc-200 dark:border-zinc-800">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 py-2">
@@ -152,6 +154,7 @@ export function SupportSkeleton() {
 export function AdminSkeleton() {
   return (
     <div className="min-h-screen bg-background">
+      <div role="status" aria-label="Loading admin" className="sr-only">Loading admin</div>
       <header className="border-b border-zinc-200 dark:border-zinc-800">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 py-2">
@@ -164,13 +167,13 @@ export function AdminSkeleton() {
             </div>
             <div className="flex items-center gap-4">
               <Skeleton className="h-9 w-32 rounded-lg" />
-              <Skeleton className="h-9 w-20 rounded-lg" />
-              <Skeleton className="h-9 w-20 rounded-lg" />
-              <Skeleton className="h-9 w-20 rounded-lg" />
+               <Skeleton className="h-9 w-20 rounded-lg" />
+               <Skeleton className="h-9 w-20 rounded-lg" />
+               <Skeleton className="h-9 w-20 rounded-lg" />
+              </div>
             </div>
           </div>
-        </div>
-      </header>
+        </header>
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -224,6 +227,7 @@ export function AdminSkeleton() {
 export function SuperAdminSkeleton() {
   return (
     <div className="min-h-screen bg-background">
+      <div role="status" aria-label="Loading super-admin" className="sr-only">Loading super-admin</div>
       <header className="border-b border-zinc-200 dark:border-zinc-800">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 py-2">
