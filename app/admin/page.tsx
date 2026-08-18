@@ -71,9 +71,21 @@ function getInitials(name: string) {
 }
 
 export default function AdminDashboard() {
+  const VALID_STAFF_ROLES = [
+    "IT Support Specialist",
+    "Senior IT Support",
+    "Network Administrator",
+    "Hardware Support",
+    "Software Support",
+    "System Administrator",
+    "Help Desk Technician",
+    "Field Technician",
+  ];
+
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [staffList, setStaffList] = useState<SupportStaff[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [selectedStaff, setSelectedStaff] = useState<SupportStaff | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [search, setSearch] = useState("");
@@ -202,38 +214,34 @@ export default function AdminDashboard() {
   }, [theme]);
 
   useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const [{ data: ticketsData }, { data: staffData }] = await Promise.all([
-          supabase.from("tickets").select("*").order("created_at", { ascending: false }),
-          supabase.from("support_staff").select("*").order("name"),
-        ]);
-        if (active) {
-          if (ticketsData) setTickets(ticketsData.map((r) => toAdminTicket(r)));
-          if (staffData) setStaffList(staffData.map((r) => toStaff(r)));
-        }
-      } finally {
-        if (active) setIsLoading(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
     let mounted = true;
 
     const refresh = async () => {
       try {
-        const [{ data: ticketsData }, { data: staffData }] = await Promise.all([
+        const [ticketsRes, staffRes] = await Promise.all([
           supabase.from("tickets").select("*").order("created_at", { ascending: false }),
           supabase.from("support_staff").select("*").order("name"),
         ]);
+
         if (!mounted) return;
-        if (ticketsData) setTickets(ticketsData.map((r) => toAdminTicket(r)));
-        if (staffData) setStaffList(staffData.map((r) => toStaff(r)));
+
+        if (ticketsRes.error || staffRes.error) {
+          const message = ticketsRes.error?.message || staffRes.error?.message || "Failed to load data";
+          console.error("Admin data load error:", ticketsRes.error || staffRes.error);
+          setPageError(message);
+          setIsLoading(false);
+          return;
+        }
+
+        setPageError(null);
+        if (ticketsRes.data) setTickets(ticketsRes.data.map((r) => toAdminTicket(r)));
+        if (staffRes.data) setStaffList(staffRes.data.map((r) => toStaff(r)));
+      } catch (err) {
+        console.error("Admin data load rejected:", err);
+        if (mounted) {
+          setPageError(err instanceof Error ? err.message : "Failed to load data");
+          setIsLoading(false);
+        }
       } finally {
         if (mounted) setIsLoading(false);
       }
@@ -346,7 +354,13 @@ export default function AdminDashboard() {
 
   const openEditStaff = (staff: SupportStaff) => {
     setEditingStaff(staff);
-    setStaffForm({ name: staff.name, email: staff.email, role: staff.role, customRole: "" });
+    const isCustomRole = !VALID_STAFF_ROLES.includes(staff.role);
+    setStaffForm({
+      name: staff.name,
+      email: staff.email,
+      role: isCustomRole ? "__other__" : staff.role,
+      customRole: isCustomRole ? staff.role : "",
+    });
     setIsStaffFormOpen(true);
     setIsStaffModalOpen(false);
   };
@@ -364,67 +378,83 @@ export default function AdminDashboard() {
     const email = staffForm.email.trim();
     const roleTitle = staffForm.customRole.trim() || staffForm.role.trim();
 
-    if (editingStaff) {
-      const payload = { name, email, role: roleTitle };
-      const { error } = await supabase
-        .from("support_staff")
-        .update(payload)
-        .eq("id", editingStaff.id);
-      if (error) {
-        setStaffFormError(error.message);
-        return;
-      }
-      setStaffList((prev) =>
-        prev.map((s) => (s.id === editingStaff.id ? { ...s, ...payload } : s)),
-      );
-      await supabase
-        .from("accounts")
-        .upsert(
-          { email, name, role: "support", avatar: getInitials(name) },
-          { onConflict: "email" }
+      if (editingStaff) {
+        const payload = { name, email, role: roleTitle };
+        const { error: staffError } = await supabase
+          .from("support_staff")
+          .update(payload)
+          .eq("id", editingStaff.id);
+        if (staffError) {
+          setStaffFormError(staffError.message);
+          return;
+        }
+        setStaffList((prev) =>
+          prev.map((s) => (s.id === editingStaff.id ? { ...s, ...payload } : s)),
         );
-      await logActivity({
-        action: "staff_updated",
-        target_type: "staff",
-        target_id: editingStaff.id,
-        details: `Updated staff: ${name} (${email})`,
-      });
-    } else {
-      const id = `staff-${Date.now()}`;
-      const newStaff: SupportStaff = {
-        id,
-        name,
-        email,
-        role: roleTitle,
-        avatar: getInitials(name),
-        active: true,
-      };
-      const { error } = await supabase.from("support_staff").insert({
-        id,
-        name: newStaff.name,
-        email: newStaff.email,
-        role: newStaff.role,
-        avatar: newStaff.avatar,
-        active: true,
-      });
-      if (error) {
-        setStaffFormError(error.message);
-        return;
+        const { data: updatedAccounts, error: accountError } = await supabase
+          .from("accounts")
+          .update({ name, email, avatar: getInitials(name) })
+          .eq("email", editingStaff.email)
+          .eq("role", "support")
+          .select();
+
+        if (accountError) {
+          setStaffFormError(accountError.message);
+          return;
+        }
+
+        if (!updatedAccounts || updatedAccounts.length === 0) {
+          const { error: insertError } = await supabase
+            .from("accounts")
+            .insert({ email, name, role: "support", avatar: getInitials(name) });
+
+          if (insertError) {
+            setStaffFormError(insertError.message);
+            return;
+          }
+        }
+        await logActivity({
+          action: "staff_updated",
+          target_type: "staff",
+          target_id: editingStaff.id,
+          details: `Updated staff: ${name} (${email})`,
+        });
+      } else {
+        const id = `staff-${Date.now()}`;
+        const newStaff: SupportStaff = {
+          id,
+          name,
+          email,
+          role: roleTitle,
+          avatar: getInitials(name),
+          active: true,
+        };
+        const { error } = await supabase.from("support_staff").insert({
+          id,
+          name: newStaff.name,
+          email: newStaff.email,
+          role: newStaff.role,
+          avatar: newStaff.avatar,
+          active: true,
+        });
+        if (error) {
+          setStaffFormError(error.message);
+          return;
+        }
+        setStaffList((prev) => [...prev, newStaff]);
+        await supabase
+          .from("accounts")
+          .upsert(
+            { email, name, role: "support", avatar: getInitials(name) },
+            { onConflict: "email", ignoreDuplicates: true }
+          );
+        await logActivity({
+          action: "staff_created",
+          target_type: "staff",
+          target_id: id,
+          details: `Created staff: ${name} (${email})`,
+        });
       }
-      setStaffList((prev) => [...prev, newStaff]);
-      await supabase
-        .from("accounts")
-        .upsert(
-          { email, name, role: "support", avatar: getInitials(name) },
-          { onConflict: "email" }
-        );
-      await logActivity({
-        action: "staff_created",
-        target_type: "staff",
-        target_id: id,
-        details: `Created staff: ${name} (${email})`,
-      });
-    }
 
     setIsStaffFormOpen(false);
     setStaffForm({ name: "", email: "", role: "", customRole: "" });
@@ -468,7 +498,7 @@ export default function AdminDashboard() {
         .from("accounts")
         .delete()
         .eq("email", target.email)
-        .neq("role", "superadmin");
+        .in("role", ["user", "support"]);
     }
     setStaffList((prev) => prev.filter((s) => s.id !== staffId));
     setTickets((prev) =>
@@ -581,6 +611,7 @@ export default function AdminDashboard() {
               </button>
               <button
                 onClick={() => setIsChatOpen(true)}
+                aria-label="Chat"
                 className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
                 <svg
@@ -681,6 +712,12 @@ export default function AdminDashboard() {
             )}
           </div>
         </div>
+
+        {pageError && (
+          <div role="alert" className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-400">
+            {pageError}
+          </div>
+        )}
 
         {!selectedStaff && (
           <div className="mb-8">
@@ -1149,37 +1186,33 @@ export default function AdminDashboard() {
                 >
                   Role / Title
                 </label>
-                {staffForm.role === "__other__" ? (
+                <select
+                  id="staffRole"
+                  value={staffForm.role}
+                  onChange={(e) =>
+                    setStaffForm({ ...staffForm, role: e.target.value, customRole: "" })
+                  }
+                  className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  <option value="">Select a role</option>
+                  {VALID_STAFF_ROLES.map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                  <option value="__other__">Other</option>
+                </select>
+                {staffForm.role === "__other__" && (
                   <input
-                    id="staffRole"
+                    id="staffCustomRole"
                     type="text"
                     value={staffForm.customRole}
                     onChange={(e) =>
                       setStaffForm({ ...staffForm, customRole: e.target.value })
                     }
-                    className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
+                    className="mt-2 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
                     placeholder="Enter custom role"
                   />
-                ) : (
-                  <select
-                    id="staffRole"
-                    value={staffForm.role}
-                    onChange={(e) =>
-                      setStaffForm({ ...staffForm, role: e.target.value, customRole: "" })
-                    }
-                    className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                  >
-                    <option value="">Select a role</option>
-                    <option value="IT Support Specialist">IT Support Specialist</option>
-                    <option value="Senior IT Support">Senior IT Support</option>
-                    <option value="Network Administrator">Network Administrator</option>
-                    <option value="Hardware Support">Hardware Support</option>
-                    <option value="Software Support">Software Support</option>
-                    <option value="System Administrator">System Administrator</option>
-                    <option value="Help Desk Technician">Help Desk Technician</option>
-                    <option value="Field Technician">Field Technician</option>
-                    <option value="__other__">Other</option>
-                  </select>
                 )}
               </div>
               {staffFormError && (

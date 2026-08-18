@@ -1,22 +1,72 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export default function ResetPasswordPage() {
+function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [recovering, setRecovering] = useState(true);
 
-  const accessToken = searchParams.get("access_token");
-  const refreshToken = searchParams.get("refresh_token");
+  const MIN_PASSWORD_LENGTH = 8;
 
-  if (!accessToken || !refreshToken) {
+  useEffect(() => {
+    const establishRecoverySession = async () => {
+      const supabase = createClient();
+      try {
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const accessToken = hashParams.get("access_token") || searchParams.get("access_token");
+        const refreshToken = hashParams.get("refresh_token") || searchParams.get("refresh_token");
+        const code = searchParams.get("code");
+
+        if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (error) throw error;
+        } else if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) throw error;
+        } else {
+          throw new Error("No recovery tokens found");
+        }
+
+        const url = new URL(window.location.href);
+        url.hash = "";
+        ["access_token", "refresh_token", "code"].forEach((param) => {
+          url.searchParams.delete(param);
+        });
+        router.replace(url.pathname + url.search);
+      } catch (err) {
+        setLinkError(err instanceof Error ? err.message : "Invalid or expired reset link");
+      } finally {
+        setRecovering(false);
+      }
+    };
+
+    establishRecoverySession();
+  }, [searchParams]);
+
+  if (recovering) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+        <div className="w-full max-w-md text-center">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Establishing secure session...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (linkError) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
         <div className="w-full max-w-md text-center">
@@ -24,7 +74,7 @@ export default function ResetPasswordPage() {
             Invalid Link
           </h1>
           <p className="mt-2 text-sm text-red-600 dark:text-red-400">
-            This password reset link is invalid or has expired.
+            {linkError}
           </p>
           <button
             onClick={() => router.replace("/")}
@@ -39,16 +89,16 @@ export default function ResetPasswordPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    setFormError(null);
     setLoading(true);
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match");
+      setFormError("Passwords do not match");
       setLoading(false);
       return;
     }
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters");
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setFormError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
       setLoading(false);
       return;
     }
@@ -67,7 +117,7 @@ export default function ResetPasswordPage() {
         router.replace("/");
       }, 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setFormError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setLoading(false);
     }
@@ -94,11 +144,11 @@ export default function ResetPasswordPage() {
               id="password"
               type="password"
               required
-              minLength={6}
+              minLength={MIN_PASSWORD_LENGTH}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Min. 6 characters"
+              placeholder={`Min. ${MIN_PASSWORD_LENGTH} characters`}
             />
           </div>
 
@@ -110,15 +160,15 @@ export default function ResetPasswordPage() {
               id="confirmPassword"
               type="password"
               required
-              minLength={6}
+              minLength={MIN_PASSWORD_LENGTH}
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Repeat new password"
+              placeholder={`Repeat new password`}
             />
           </div>
 
-          {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+          {formError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{formError}</p>}
           {success && (
             <p role="status" className="text-sm text-emerald-600 dark:text-emerald-400">
               Password updated! Redirecting...
@@ -135,5 +185,21 @@ export default function ResetPasswordPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+          <div className="w-full max-w-md text-center">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading...</p>
+          </div>
+        </div>
+      }
+    >
+      <ResetPasswordForm />
+    </Suspense>
   );
 }

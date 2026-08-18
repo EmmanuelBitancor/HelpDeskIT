@@ -80,106 +80,88 @@ export default function SupportDashboard() {
 
   useEffect(() => {
     if (!user?.email) return;
-    let active = true;
-    (async () => {
-      try {
-        const { data: staffData } = await supabase
-          .from("support_staff")
-          .select("*")
-          .order("name");
-        if (!active || !staffData) return;
-        const staff = staffData.map(toStaff);
-        setStaffList(staff);
-        const me = staff.find((s) => s.email === user.email) ?? staff[0];
-        if (!me) return;
-        const { data: ticketsData } = await supabase
-          .from("tickets")
-          .select("*")
-          .eq("assigned_to", me.id)
-          .order("created_at", { ascending: false });
-        if (!active) return;
-        const ticketIds = (ticketsData ?? []).map((r) => String(r.id));
-        const { data: historyData } = ticketIds.length
-          ? await supabase
-              .from("ticket_history")
-              .select("*")
-              .in("ticket_id", ticketIds)
-              .order("at")
-          : { data: [] };
-        if (!active) return;
-        const byTicket = new Map<string, TicketHistoryEntry[]>();
-        (historyData ?? []).forEach((h) => {
-          const key = String(h.ticket_id);
-          const arr = byTicket.get(key) ?? [];
-          arr.push(toHistoryEntry(h));
-          byTicket.set(key, arr);
-        });
-        setTickets(
-          (ticketsData ?? []).map((r) =>
-            toSupportTicket(r, byTicket.get(String(r.id)) ?? []),
-          ),
-        );
-      } finally {
-        if (active) setIsLoadingStaff(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [user?.email]);
-
-  useEffect(() => {
     let mounted = true;
+    const channels: ReturnType<typeof supabase.channel>[] = [];
 
-    const refresh = async () => {
-      if (!user?.email) return;
+    const refresh = async (): Promise<SupportStaff | null> => {
+      if (!user?.email || !mounted) return null;
       try {
-        const [{ data: ticketsData }, { data: staffData }] = await Promise.all([
-          supabase
-            .from("tickets")
-            .select("*")
-            .order("created_at", { ascending: false }),
+        const [{ data: ticketsData, error: ticketsError }, { data: staffData, error: staffError }] = await Promise.all([
+          supabase.from("tickets").select("*").order("created_at", { ascending: false }),
           supabase.from("support_staff").select("*").order("name"),
         ]);
-        if (!mounted) return;
-        if (ticketsData) {
-          const byTicket = new Map<string, TicketHistoryEntry[]>();
-          for (const h of ticketsData) {
-            const key = String(h.id);
-            byTicket.set(key, []);
+        if (!mounted) return null;
+        if (ticketsError || staffError) {
+          console.error("Support data load error:", ticketsError || staffError);
+          setIsLoadingStaff(false);
+          return null;
+        }
+        let currentMe: SupportStaff | null = null;
+        if (staffData) {
+          const staff = staffData.map(toStaff);
+          setStaffList(staff);
+          currentMe = staff.find((s) => s.email === user.email) ?? null;
+        }
+        const assignedTo = currentMe?.id;
+        const assignedTickets = assignedTo
+          ? ticketsData?.filter((t) => t.assigned_to === assignedTo)
+          : ticketsData;
+        const byTicket = new Map<string, TicketHistoryEntry[]>();
+        if (assignedTickets && assignedTickets.length > 0) {
+          const ticketIds = assignedTickets.map((r) => String(r.id));
+          const { data: history } = await supabase
+            .from("ticket_history")
+            .select("*")
+            .in("ticket_id", ticketIds)
+            .order("at");
+          for (const h of history ?? []) {
+            const key = String(h.ticket_id);
+            const arr = byTicket.get(key) ?? [];
+            arr.push(toHistoryEntry(h));
+            byTicket.set(key, arr);
           }
+        }
+        if (assignedTickets) {
           setTickets(
-            ticketsData.map((r) =>
-              toSupportTicket(r, byTicket.get(String(r.id)) ?? [])
+            assignedTickets.map((r) =>
+              toSupportTicket(r, byTicket.get(String(r.id)) ?? []),
             ),
           );
         }
-        if (staffData) setStaffList(staffData.map((r) => toStaff(r)));
+        return currentMe;
+      } catch (err) {
+        console.error("Support data load rejected:", err);
+        if (mounted) setIsLoadingStaff(false);
+        return null;
       } finally {
         if (mounted) setIsLoadingStaff(false);
       }
     };
 
-    refresh();
-
-    const channels = [
-      supabase.channel("realtime-support-tickets").on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "tickets" },
-        () => {
-          refresh();
-        }
-      ),
-      supabase.channel("realtime-support-staff").on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "support_staff" },
-        () => {
-          refresh();
-        }
-      ),
-    ];
-
-    channels.forEach((channel) => channel.subscribe());
+    (async () => {
+      const resolvedMe = await refresh();
+      if (!mounted || !resolvedMe) return;
+      const assignedTo = resolvedMe.id;
+      channels.push(
+        supabase.channel("realtime-support-tickets").on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "tickets", filter: `assigned_to=eq.${assignedTo}` },
+          () => {
+            refresh();
+          }
+        )
+      );
+      channels.push(
+        supabase.channel("realtime-support-staff").on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "support_staff" },
+          () => {
+            refresh();
+          }
+        )
+      );
+      channels.forEach((channel) => channel.subscribe());
+    })();
 
     return () => {
       mounted = false;
@@ -323,28 +305,6 @@ export default function SupportDashboard() {
   };
 
   const handleUserAdded = (user: { id: string; name: string; email: string; role: string }) => {
-    setTickets((prev) => {
-      const maxNum = prev.reduce((max, t) => {
-        const match = t.id.match(/(\d+)$/);
-        if (match) return Math.max(max, parseInt(match[1], 10));
-        return max;
-      }, 0);
-      const nextId = `TK-${String(maxNum + 1).padStart(2, "0")}`;
-      return [
-        ...prev,
-        {
-          id: nextId,
-          subject: "New user account created",
-          category: "General",
-          priority: "low",
-          status: "open",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          description: `User account created for ${user.name} (${user.email}) with role: ${user.role}`,
-          submittedBy: currentStaff?.email,
-        } as Ticket,
-      ];
-    });
     logActivity({
       action: "user_created",
       target_type: "user",
@@ -423,6 +383,7 @@ export default function SupportDashboard() {
               </span>
               <button
                 onClick={() => setIsAddUserOpen(true)}
+                aria-label="Add User"
                 className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
                 <svg
@@ -442,6 +403,7 @@ export default function SupportDashboard() {
               </button>
               <button
                 onClick={() => setIsProfileOpen(true)}
+                aria-label="Profile"
                 className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
                 <svg
@@ -461,6 +423,7 @@ export default function SupportDashboard() {
               </button>
               <button
                 onClick={() => setIsChatOpen(true)}
+                aria-label="Chat"
                 className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
                 <svg
@@ -517,6 +480,12 @@ export default function SupportDashboard() {
               <span className="hidden text-sm text-zinc-600 dark:text-zinc-400 sm:inline">
                 {currentStaff.email}
               </span>
+              <button
+                onClick={() => setIsForgotPasswordOpen(true)}
+                className="text-xs text-zinc-500 underline hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
+              >
+                Forgot Password?
+              </button>
               <SignOutButton />
             </div>
           </div>
@@ -774,10 +743,10 @@ export default function SupportDashboard() {
           onClose={() => setIsForgotPasswordOpen(false)}
         />
       )}
-      {isChatOpen && (
+      {isChatOpen && user?.id && (
         <ChatPanel
           currentUser={{
-            id: user?.id || currentStaff.id,
+            id: user.id,
             name: currentStaff.name,
             email: currentStaff.email,
             role: "support",

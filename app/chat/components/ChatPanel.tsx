@@ -12,6 +12,8 @@ interface Conversation {
   created_for: string;
   created_by_role: string;
   created_for_role: string;
+  created_by_name?: string;
+  created_for_name?: string;
   updated_at: string;
 }
 
@@ -56,11 +58,13 @@ export default function ChatPanel({
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const newConversationRef = useRef<HTMLDivElement>(null);
+  const selectedIdRef = useRef<string | null>(null);
 
-  const getFocusableElements = useCallback(() => {
-    if (!dialogRef.current) return [];
+  const getFocusableElements = useCallback((containerRef: React.RefObject<HTMLDivElement | null>) => {
+    if (!containerRef.current) return [];
     return Array.from(
-      dialogRef.current.querySelectorAll<HTMLElement>(
+      containerRef.current.querySelectorAll<HTMLElement>(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
       )
     ).filter((el) => !el.hasAttribute("disabled"));
@@ -69,7 +73,7 @@ export default function ChatPanel({
   useEffect(() => {
     if (!showNewConversation) return;
 
-    const previousFocus = document.activeElement as HTMLElement;
+    const previousFocus = document.activeElement;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -78,19 +82,19 @@ export default function ChatPanel({
       }
       if (e.key !== "Tab") return;
 
-      const focusable = getFocusableElements();
+      const focusable = getFocusableElements(newConversationRef);
       if (!focusable.length) return;
 
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
 
       if (e.shiftKey) {
-        if (document.activeElement === first || !dialogRef.current?.contains(document.activeElement)) {
+        if (document.activeElement === first || !newConversationRef.current?.contains(document.activeElement)) {
           e.preventDefault();
           last.focus();
         }
       } else {
-        if (document.activeElement === last || !dialogRef.current?.contains(document.activeElement)) {
+        if (document.activeElement === last || !newConversationRef.current?.contains(document.activeElement)) {
           e.preventDefault();
           first.focus();
         }
@@ -98,26 +102,15 @@ export default function ChatPanel({
     };
 
     document.addEventListener("keydown", handleKeyDown);
-    dialogRef.current?.focus();
+    newConversationRef.current?.focus();
 
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      previousFocus.focus();
-    };
-  }, [showNewConversation, getFocusableElements]);
-
-  useEffect(() => {
-    if (!showNewConversation) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setShowNewConversation(false);
+      if (previousFocus && previousFocus instanceof HTMLElement) {
+        previousFocus.focus();
       }
     };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [showNewConversation]);
+  }, [showNewConversation, getFocusableElements]);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -140,17 +133,50 @@ export default function ChatPanel({
     } catch {
       // ignore
     }
-  }, [currentUser, getRecipients]);
+  }, [currentUser.id, getRecipients]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadConversations();
     loadRecipients();
-  }, [currentUser, loadConversations, loadRecipients]);
+  }, [currentUser.id, loadConversations, loadRecipients]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (showNewConversation) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      const focusable = getFocusableElements(dialogRef);
+      if (!focusable.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first || !dialogRef.current?.contains(document.activeElement)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last || !dialogRef.current?.contains(document.activeElement)) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [showNewConversation, onClose, getFocusableElements]);
 
   useEffect(() => {
     if (!selectedConversation) return;
@@ -183,12 +209,13 @@ export default function ChatPanel({
   }, [selectedConversation, currentUser.id]);
 
   const selectConversation = async (conversation: Conversation) => {
+    selectedIdRef.current = conversation.id;
     setSelectedConversation(conversation);
     setMessages([]);
     try {
       const res = await fetch(`/api/messages?conversation_id=${conversation.id}`);
       const data = await res.json();
-      if (res.ok && data.messages) {
+      if (selectedIdRef.current === conversation.id && res.ok && data.messages) {
         setMessages(data.messages);
       }
     } catch {
@@ -209,7 +236,9 @@ export default function ChatPanel({
         throw new Error(data.error || `Server error: ${res.status}`);
       }
       if (data.conversation) {
-        setConversations((prev) => [data.conversation, ...prev]);
+        setConversations((prev) =>
+          prev.some((c) => c.id === data.conversation.id) ? prev : [data.conversation, ...prev]
+        );
         setSelectedConversation(data.conversation);
         setMessages([]);
         setShowNewConversation(false);
@@ -245,6 +274,7 @@ export default function ChatPanel({
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
+      setNewMessage(tempContent);
     } finally {
       setIsSending(false);
     }
@@ -256,7 +286,15 @@ export default function ChatPanel({
         ? conversation.created_for
         : conversation.created_by;
     const other = recipients.find((r) => r.id === otherId);
-    return other?.name || other?.email || "Unknown";
+    if (other) return other.name || other.email || "Unknown";
+
+    const storedName =
+      conversation.created_by === currentUser.id
+        ? conversation.created_for_name
+        : conversation.created_by_name;
+    if (storedName) return storedName;
+
+    return "Unknown";
   };
 
   const formatTime = (dateString: string) => {
@@ -283,6 +321,7 @@ export default function ChatPanel({
           </h3>
           <button
             onClick={onClose}
+            aria-label="Close chat"
             className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -291,17 +330,18 @@ export default function ChatPanel({
           </button>
         </div>
 
-        {error && (
-          <div className="border-b border-red-200 bg-red-50 px-6 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400">
-            {error}
-            <button
-              onClick={() => setError(null)}
-              className="ml-2 text-red-500 hover:text-red-700 dark:hover:text-red-300"
-            >
-              ✕
-            </button>
-          </div>
-        )}
+            {error && (
+              <div className="border-b border-red-200 bg-red-50 px-6 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400">
+                {error}
+                <button
+                  onClick={() => setError(null)}
+                  aria-label="Dismiss error"
+                  className="ml-2 text-red-500 hover:text-red-700 dark:hover:text-red-300"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
 
         <div className="flex flex-1 overflow-hidden">
           {/* Conversations list */}
@@ -443,7 +483,7 @@ export default function ChatPanel({
         {showNewConversation && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 p-4">
             <div
-              ref={dialogRef}
+              ref={newConversationRef}
               role="dialog"
               aria-modal="true"
               aria-labelledby="newConversationTitle"
@@ -456,6 +496,7 @@ export default function ChatPanel({
                 </h3>
                 <button
                   onClick={() => setShowNewConversation(false)}
+                  aria-label="Close dialog"
                   className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
                 >
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -479,10 +520,10 @@ export default function ChatPanel({
                       >
                         <div
                           className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-white ${
-                            avatarColors[recipient.name.charCodeAt(0) % avatarColors.length]
+                            avatarColors[(recipient.name || recipient.email).charCodeAt(0) % avatarColors.length]
                           }`}
                         >
-                          {recipient.name
+                          {(recipient.name || recipient.email)
                             .split(" ")
                             .map((n) => n[0])
                             .join("")

@@ -76,9 +76,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { conversation_id, content } = body;
 
-    if (!conversation_id || !content?.trim()) {
+    if (!conversation_id || typeof content !== "string" || !content.trim()) {
       return NextResponse.json(
         { error: "conversation_id and content are required" },
+        { status: 400 }
+      );
+    }
+
+    if (content.length > 5000) {
+      return NextResponse.json(
+        { error: "Content must not exceed 5000 characters" },
         { status: 400 }
       );
     }

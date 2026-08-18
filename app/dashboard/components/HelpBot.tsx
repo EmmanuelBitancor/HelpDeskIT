@@ -57,7 +57,7 @@ export default function HelpBot() {
     setError(null);
 
     try {
-      const history = messages.map((m) => ({ role: m.role, text: m.text }));
+      const history = messages.map((m) => ({ role: m.role === "bot" ? "assistant" : m.role, text: m.text }));
 
       const response = await fetch("/api/chatbot", {
         method: "POST",
@@ -179,7 +179,7 @@ export default function HelpBot() {
 
             {error && (
               <div className="flex items-start">
-                <div className="rounded-2xl rounded-bl-sm bg-red-50 px-4 py-3 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
+                <div className="rounded-2xl rounded-bl-sm bg-red-50 px-4 py-3 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400" role="alert">
                   {error}
                 </div>
               </div>
