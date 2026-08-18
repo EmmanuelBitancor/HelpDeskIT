@@ -8,6 +8,7 @@ import SignOutButton from "@/components/SignOutButton";
 import { SuperAdminSkeleton, Skeleton } from "@/components/skeleton";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity";
+import { useNotifications } from "@/app/hooks/useNotifications";
 import ProfileSettingsModal from "../settings/components/ProfileSettingsModal";
 import ChatPanel from "../chat/components/ChatPanel";
 import {
@@ -1316,6 +1317,7 @@ export default function SuperAdminDashboard() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const { unreadMessages } = useNotifications();
 
   const router = useRouter();
   const { user, loading } = useAuth();
@@ -1729,8 +1731,13 @@ export default function SuperAdminDashboard() {
               </button>
               <button
                 onClick={() => setIsChatOpen(true)}
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="relative inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
+                {unreadMessages > 0 && (
+                  <span className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white">
+                    {unreadMessages > 9 ? "9+" : unreadMessages}
+                  </span>
+                )}
                 <svg
                   className="h-4 w-4"
                   fill="none"

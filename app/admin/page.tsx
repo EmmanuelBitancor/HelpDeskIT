@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import StaffModal from "./components/StaffModal";
+import { useNotifications } from "@/app/hooks/useNotifications";
 import { useAuth } from "@/context/AuthContext";
 import { FORBIDDEN_ROUTE } from "@/context/authTypes";
 import SignOutButton from "@/components/SignOutButton";
@@ -101,6 +102,7 @@ export default function AdminDashboard() {
   });
   const [staffFormError, setStaffFormError] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const { unreadMessages } = useNotifications();
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const saved = localStorage.getItem("theme");
@@ -612,8 +614,13 @@ export default function AdminDashboard() {
               <button
                 onClick={() => setIsChatOpen(true)}
                 aria-label="Chat"
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="relative inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
+                {unreadMessages > 0 && (
+                  <span className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white">
+                    {unreadMessages > 9 ? "9+" : unreadMessages}
+                  </span>
+                )}
                 <svg
                   className="h-4 w-4"
                   fill="none"

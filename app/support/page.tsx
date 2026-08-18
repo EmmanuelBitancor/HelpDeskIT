@@ -12,6 +12,7 @@ import SignOutButton from "@/components/SignOutButton";
 import { SupportSkeleton } from "@/components/skeleton";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity";
+import { useNotifications } from "@/app/hooks/useNotifications";
 import ProfileSettingsModal from "../settings/components/ProfileSettingsModal";
 import ForgotPasswordModal from "../settings/components/ForgotPasswordModal";
 import ChatPanel from "../chat/components/ChatPanel";
@@ -68,6 +69,7 @@ function getAvatarColor(name: string) {
 export default function SupportDashboard() {
   const router = useRouter();
   const { user, loading } = useAuth();
+  const { unreadMessages } = useNotifications();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [staffList, setStaffList] = useState<SupportStaff[]>([]);
@@ -424,8 +426,13 @@ export default function SupportDashboard() {
               <button
                 onClick={() => setIsChatOpen(true)}
                 aria-label="Chat"
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="relative inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
+                {unreadMessages > 0 && (
+                  <span className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white">
+                    {unreadMessages > 9 ? "9+" : unreadMessages}
+                  </span>
+                )}
                 <svg
                   className="h-4 w-4"
                   fill="none"

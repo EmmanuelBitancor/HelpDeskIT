@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Skeleton } from "@/components/skeleton";
 import { createClient } from "@/lib/supabase/client";
 
@@ -25,6 +25,7 @@ interface Message {
   sender_role: string;
   content: string;
   created_at: string;
+  read_at?: string | null;
 }
 
 interface UserInfo {
@@ -60,6 +61,24 @@ export default function ChatPanel({
   const dialogRef = useRef<HTMLDivElement>(null);
   const newConversationRef = useRef<HTMLDivElement>(null);
   const selectedIdRef = useRef<string | null>(null);
+
+  const unreadCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const message of messages) {
+      if (message.sender_id !== currentUser.id && !message.read_at) {
+        counts.set(message.conversation_id, (counts.get(message.conversation_id) || 0) + 1);
+      }
+    }
+    return counts;
+  }, [messages, currentUser.id]);
+
+  const totalUnread = useMemo(() => {
+    let total = 0;
+    for (const count of unreadCounts.values()) {
+      total += count;
+    }
+    return total;
+  }, [unreadCounts]);
 
   const getFocusableElements = useCallback((containerRef: React.RefObject<HTMLDivElement | null>) => {
     if (!containerRef.current) return [];
@@ -316,9 +335,16 @@ export default function ChatPanel({
         className="flex h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
-          <h3 id="chatPanelTitle" className="text-lg font-semibold text-foreground">
-            {title}
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 id="chatPanelTitle" className="text-lg font-semibold text-foreground">
+              {title}
+            </h3>
+            {totalUnread > 0 && (
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white">
+                {totalUnread > 9 ? "9+" : totalUnread}
+              </span>
+            )}
+          </div>
           <button
             onClick={onClose}
             aria-label="Close chat"
@@ -370,24 +396,34 @@ export default function ChatPanel({
               ) : conversations.length === 0 ? (
                 <div className="p-4 text-center text-sm text-zinc-400">No conversations yet</div>
               ) : (
-                conversations.map((conversation) => (
-                  <button
-                    key={conversation.id}
-                    onClick={() => selectConversation(conversation)}
-                    className={`flex w-full flex-col items-start gap-1 border-b border-zinc-100 p-3 text-left transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800 ${
-                      selectedConversation?.id === conversation.id
-                        ? "bg-zinc-100 dark:bg-zinc-800"
-                        : ""
-                    }`}
-                  >
-                    <span className="text-sm font-medium text-foreground">
-                      {getConversationTitle(conversation)}
-                    </span>
-                    <span className="text-xs text-zinc-400">
-                      {new Date(conversation.updated_at).toLocaleDateString()}
-                    </span>
-                  </button>
-                ))
+                conversations.map((conversation) => {
+                  const unread = unreadCounts.get(conversation.id) || 0;
+                  return (
+                    <button
+                      key={conversation.id}
+                      onClick={() => selectConversation(conversation)}
+                      className={`flex w-full flex-col items-start gap-1 border-b border-zinc-100 p-3 text-left transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800 ${
+                        selectedConversation?.id === conversation.id
+                          ? "bg-zinc-100 dark:bg-zinc-800"
+                          : ""
+                      }`}
+                    >
+                      <div className="flex w-full items-center justify-between">
+                        <span className="text-sm font-medium text-foreground">
+                          {getConversationTitle(conversation)}
+                        </span>
+                        {unread > 0 && (
+                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white">
+                            {unread > 9 ? "9+" : unread}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-zinc-400">
+                        {new Date(conversation.updated_at).toLocaleDateString()}
+                      </span>
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>
