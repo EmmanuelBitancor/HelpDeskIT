@@ -4,6 +4,7 @@ export type ActivityAction =
   | "logout"
   | "user_approved"
   | "user_status_changed"
+  | "user_role_changed"
   | "user_created"
   | "staff_created"
   | "staff_updated"

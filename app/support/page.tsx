@@ -13,6 +13,8 @@ import { SupportSkeleton } from "@/components/skeleton";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity";
 import { useNotifications } from "@/app/hooks/useNotifications";
+import { getCachedData, setCachedData } from "@/lib/cache";
+import { usePagination, Pagination } from "@/components/Pagination";
 import ProfileSettingsModal from "../settings/components/ProfileSettingsModal";
 import ForgotPasswordModal from "../settings/components/ForgotPasswordModal";
 import ChatPanel from "../chat/components/ChatPanel";
@@ -87,6 +89,12 @@ export default function SupportDashboard() {
 
     const refresh = async (): Promise<SupportStaff | null> => {
       if (!user?.email || !mounted) return null;
+
+      const cachedStaff = getCachedData<SupportStaff[]>("support_staff");
+      const cachedTickets = getCachedData<Ticket[]>("support_tickets");
+      if (cachedStaff?.data) setStaffList(cachedStaff.data);
+      if (cachedTickets?.data) setTickets(cachedTickets.data);
+
       try {
         const [{ data: ticketsData, error: ticketsError }, { data: staffData, error: staffError }] = await Promise.all([
           supabase.from("tickets").select("*").order("created_at", { ascending: false }),
@@ -124,11 +132,15 @@ export default function SupportDashboard() {
           }
         }
         if (assignedTickets) {
-          setTickets(
-            assignedTickets.map((r) =>
-              toSupportTicket(r, byTicket.get(String(r.id)) ?? []),
-            ),
+          const mappedTickets = assignedTickets.map((r) =>
+            toSupportTicket(r, byTicket.get(String(r.id)) ?? []),
           );
+          setTickets(mappedTickets);
+          setCachedData("support_tickets", mappedTickets, 30_000);
+        }
+        if (staffData) {
+          const staff = staffData.map(toStaff);
+          setCachedData("support_staff", staff, 60_000);
         }
         return currentMe;
       } catch (err) {
@@ -217,6 +229,8 @@ export default function SupportDashboard() {
       return matchesStatus && matchesSearch;
     });
   }, [myTickets, search, statusFilter]);
+
+  const { paginatedItems: paginatedTickets, page: ticketsPage, totalPages: ticketsTotalPages, setPage: setTicketsPage } = usePagination(filteredTickets);
 
   const stats = useMemo(() => {
     const open = myTickets.filter((t) => t.status === "open").length;
@@ -662,7 +676,7 @@ export default function SupportDashboard() {
                     </td>
                   </tr>
                 ) : (
-                  filteredTickets.map((ticket) => (
+                  paginatedTickets.map((ticket) => (
                     <tr
                       key={ticket.id}
                       className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
@@ -714,6 +728,7 @@ export default function SupportDashboard() {
                 )}
               </tbody>
             </table>
+            <Pagination page={ticketsPage} totalPages={ticketsTotalPages} onPageChange={setTicketsPage} />
           </div>
         </div>
       </main>

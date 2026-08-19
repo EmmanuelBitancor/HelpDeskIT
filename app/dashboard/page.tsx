@@ -11,6 +11,8 @@ import SignOutButton from "@/components/SignOutButton";
 import { DashboardSkeleton } from "@/components/skeleton";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity";
+import { getCachedData, setCachedData } from "@/lib/cache";
+import { usePagination, Pagination } from "@/components/Pagination";
 import type { Ticket, TicketStatus, TicketPriority, SupportStaff } from "../types/ticket";
 import { toAdminTicket as toTicket } from "../types/mappers";
 
@@ -80,6 +82,20 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user?.email) return;
     let active = true;
+
+    const cachedTickets = getCachedData<Ticket[]>("dashboard_tickets");
+    const cachedStaff = getCachedData<SupportStaff[]>("dashboard_staff");
+    if (cachedTickets?.data) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTickets(cachedTickets.data);
+    }
+    if (cachedStaff?.data) {
+      const staffMap = new Map<string, SupportStaff>();
+      for (const s of cachedStaff.data) {
+        staffMap.set(String(s.id), s);
+      }
+    }
+
     (async () => {
       const [{ data: ticketsData, error: ticketsError }, { data: staffData, error: staffError }] = await Promise.all([
         supabase
@@ -124,6 +140,11 @@ export default function DashboardPage() {
             return ticket;
           });
           setTickets(mapped);
+          setCachedData("dashboard_tickets", mapped, 30_000);
+        }
+        if (staffData) {
+          const staffList = Array.from(staffMap.values());
+          setCachedData("dashboard_staff", staffList, 60_000);
         }
       }
     })();
@@ -218,6 +239,8 @@ export default function DashboardPage() {
   );
 
   const displayedTickets = activeTab === "active" ? activeTickets : pastTickets;
+
+  const { paginatedItems: paginatedTickets, page: ticketsPage, totalPages: ticketsTotalPages, setPage: setTicketsPage } = usePagination(displayedTickets);
 
   const stats = {
     open: tickets.filter((t) => t.status === "open").length,
@@ -526,7 +549,7 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {displayedTickets.map((ticket) => (
+                {paginatedTickets.map((ticket) => (
                   <div
                     key={ticket.id}
                     className="rounded-xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
@@ -635,6 +658,7 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 ))}
+                <Pagination page={ticketsPage} totalPages={ticketsTotalPages} onPageChange={setTicketsPage} />
               </div>
             )}
           </div>

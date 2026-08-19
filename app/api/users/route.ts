@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { sendEmail, isEmailConfigured } from "@/lib/email";
 
 export async function GET() {
   try {
@@ -271,6 +272,7 @@ export async function POST(request: NextRequest) {
         {
           method: "DELETE",
           headers: {
+            "Content-Type": "application/json",
             apikey: serviceRoleKey,
             Authorization: `Bearer ${serviceRoleKey}`,
           },
@@ -290,6 +292,30 @@ export async function POST(request: NextRequest) {
         { error: "Failed to create user account" },
         { status: 400 }
       );
+    }
+
+    if (isEmailConfigured()) {
+      try {
+        await sendEmail({
+          to: email,
+          subject: "Welcome to HelpDeskIT",
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
+              <h1 style="color: #2563eb;">Welcome to HelpDeskIT</h1>
+              <p>Hello ${name},</p>
+              <p>Your account has been created successfully. You can now log in with the following credentials:</p>
+              <div style="background: #f3f4f6; padding: 16px; border-radius: 8px; margin: 16px 0;">
+                <p><strong>Email:</strong> ${email}</p>
+                <p><strong>Password:</strong> ${password}</p>
+              </div>
+              <p>Please change your password after logging in for the first time.</p>
+              <p>If you have any questions, contact your IT support team.</p>
+            </div>
+          `,
+        });
+      } catch (emailError) {
+        console.error("Failed to send welcome email:", emailError);
+      }
     }
 
     return NextResponse.json({

@@ -10,6 +10,8 @@ import SignOutButton from "@/components/SignOutButton";
 import { AdminSkeleton } from "@/components/skeleton";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity";
+import { getCachedData, setCachedData } from "@/lib/cache";
+import { usePagination, Pagination } from "@/components/Pagination";
 import ChatPanel from "../chat/components/ChatPanel";
 import type { Ticket, SupportStaff, TicketStatus, TicketPriority } from "../types/ticket";
 import { toAdminTicket, toStaff } from "../types/mappers";
@@ -236,8 +238,12 @@ export default function AdminDashboard() {
         }
 
         setPageError(null);
-        if (ticketsRes.data) setTickets(ticketsRes.data.map((r) => toAdminTicket(r)));
-        if (staffRes.data) setStaffList(staffRes.data.map((r) => toStaff(r)));
+        const tickets = ticketsRes.data?.map((r) => toAdminTicket(r)) ?? [];
+        const staff = staffRes.data?.map((r) => toStaff(r)) ?? [];
+        setTickets(tickets);
+        setStaffList(staff);
+        setCachedData("admin_tickets", tickets, 30_000);
+        setCachedData("admin_staff", staff, 60_000);
       } catch (err) {
         console.error("Admin data load rejected:", err);
         if (mounted) {
@@ -249,6 +255,15 @@ export default function AdminDashboard() {
       }
     };
 
+    const cachedTickets = getCachedData<Ticket[]>("admin_tickets");
+    const cachedStaff = getCachedData<SupportStaff[]>("admin_staff");
+    if (cachedTickets?.data) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTickets(cachedTickets.data);
+    }
+    if (cachedStaff?.data) {
+      setStaffList(cachedStaff.data);
+    }
     refresh();
 
     const channels = [
@@ -296,6 +311,8 @@ export default function AdminDashboard() {
       return matchesStatus && matchesSearch;
     });
   }, [tickets, search, statusFilter, selectedStaff]);
+
+  const { paginatedItems: paginatedTickets, page: ticketsPage, totalPages: ticketsTotalPages, setPage: setTicketsPage } = usePagination(filteredTickets);
 
   const stats = useMemo(() => {
     const base = selectedStaff
@@ -909,7 +926,7 @@ export default function AdminDashboard() {
                     </td>
                   </tr>
                 ) : (
-                  filteredTickets.map((ticket) => {
+                  paginatedTickets.map((ticket) => {
                     const assignee = ticket.assignedTo
                       ? staffList.find((s) => s.id === ticket.assignedTo)
                       : null;
@@ -984,6 +1001,7 @@ export default function AdminDashboard() {
                 )}
               </tbody>
             </table>
+            <Pagination page={ticketsPage} totalPages={ticketsTotalPages} onPageChange={setTicketsPage} />
           </div>
         </div>
       </main>
