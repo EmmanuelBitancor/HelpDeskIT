@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { FORBIDDEN_ROUTE } from "@/context/authTypes";
@@ -9,6 +9,8 @@ import { SuperAdminSkeleton, Skeleton } from "@/components/skeleton";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity";
 import { useNotifications } from "@/app/hooks/useNotifications";
+import { getCachedData, setCachedData } from "@/lib/cache";
+import { usePagination, Pagination } from "@/components/Pagination";
 import ProfileSettingsModal from "../settings/components/ProfileSettingsModal";
 import ChatPanel from "../chat/components/ChatPanel";
 import {
@@ -429,13 +431,17 @@ function UsersSection({
   users,
   onApproveUser,
   onToggleStatus,
+  onEditRole,
 }: {
   users: SystemUser[];
   onApproveUser: (id: string) => void;
   onToggleStatus: (id: string) => void;
+  onEditRole: (id: string, role: UserRole) => void;
 }) {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<UserRole | "all">("all");
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editingRole, setEditingRole] = useState<UserRole>("user");
 
   const filtered = users.filter((u) => {
     const matchRole = roleFilter === "all" || u.role === roleFilter;
@@ -444,6 +450,16 @@ function UsersSection({
       u.email.toLowerCase().includes(search.toLowerCase());
     return matchRole && matchSearch;
   });
+
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      if (a.role === "superadmin" && b.role !== "superadmin") return -1;
+      if (b.role === "superadmin" && a.role !== "superadmin") return 1;
+      return 0;
+    });
+  }, [filtered]);
+
+  const { paginatedItems: paginatedUsers, page: usersPage, totalPages: usersTotalPages, setPage: setUsersPage } = usePagination(sorted);
 
   return (
     <div className="space-y-4">
@@ -509,10 +525,12 @@ function UsersSection({
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {filtered.map((u) => (
+              {paginatedUsers.map((u) => (
                 <tr
                   key={u.id}
-                  className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+                  className={`transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40 ${
+                    u.role === "superadmin" ? "bg-violet-50/50 dark:bg-violet-900/10" : ""
+                  }`}
                 >
                   <td className="px-5 py-3">
                     <div>
@@ -546,42 +564,78 @@ function UsersSection({
                     {u.ticketCount}
                   </td>
                   <td className="px-5 py-3">
-                    <div className="flex items-center gap-2">
-                      {u.status === "pending" && (
-                        <button
-                          onClick={() => onApproveUser(u.id)}
-                          className="rounded-md bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300"
-                        >
-                          Approve
-                        </button>
-                      )}
-                      {u.status !== "pending" && (
-                        <button
-                          onClick={() => onToggleStatus(u.id)}
-                          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                            u.status === "active"
-                              ? "bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300"
-                              : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300"
-                          }`}
-                        >
-                          {u.status === "active" ? "Suspend" : "Reinstate"}
-                        </button>
-                      )}
-                      <button
-                        className="rounded-md border border-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                        disabled
-                        title="Coming soon"
-                      >
-                        Edit Role
-                      </button>
-                    </div>
+                    {u.role !== "superadmin" && (
+                      <div className="flex items-center gap-2">
+                        {u.status === "pending" && (
+                          <button
+                            onClick={() => onApproveUser(u.id)}
+                            className="rounded-md bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300"
+                          >
+                            Approve
+                          </button>
+                        )}
+                        {u.status !== "pending" && (
+                          <button
+                            onClick={() => onToggleStatus(u.id)}
+                            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                              u.status === "active"
+                                ? "bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300"
+                                : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300"
+                            }`}
+                          >
+                            {u.status === "active" ? "Suspend" : "Reinstate"}
+                          </button>
+                        )}
+                        {editingUserId === u.id ? (
+                          <select
+                            value={editingRole}
+                            onChange={(e) => setEditingRole(e.target.value as UserRole)}
+                            onBlur={() => {
+                              if (editingUserId) {
+                                onEditRole(editingUserId, editingRole);
+                                setEditingUserId(null);
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                if (editingUserId) {
+                                  onEditRole(editingUserId, editingRole);
+                                  setEditingUserId(null);
+                                }
+                              }
+                              if (e.key === "Escape") {
+                                setEditingUserId(null);
+                              }
+                            }}
+                            autoFocus
+                            className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-foreground outline-none focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800"
+                          >
+                            <option value="user">User</option>
+                            <option value="support">Support</option>
+                            <option value="admin">Admin</option>
+                            <option value="superadmin">Superadmin</option>
+                          </select>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setEditingUserId(u.id);
+                              setEditingRole(u.role);
+                            }}
+                            className="rounded-md border border-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                          >
+                            Edit Role
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <Pagination page={usersPage} totalPages={usersTotalPages} onPageChange={setUsersPage} />
         </div>
-        {filtered.length === 0 && (
+        {sorted.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-zinc-400">
             <p className="text-sm">No users match your filters.</p>
           </div>
@@ -598,6 +652,8 @@ function TicketsSection({ tickets }: { tickets: Ticket[] }) {
     filter === "all"
       ? tickets
       : tickets.filter((t) => t.status === filter);
+
+  const { paginatedItems: paginatedTickets, page: ticketsPage, totalPages: ticketsTotalPages, setPage: setTicketsPage } = usePagination(filtered);
 
   return (
     <div className="space-y-4">
@@ -621,7 +677,7 @@ function TicketsSection({ tickets }: { tickets: Ticket[] }) {
       </div>
 
       <div className="space-y-3">
-        {filtered.map((ticket) => (
+        {paginatedTickets.map((ticket) => (
           <div
             key={ticket.id}
             className="rounded-xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
@@ -677,6 +733,8 @@ function TicketsSection({ tickets }: { tickets: Ticket[] }) {
         ))}
       </div>
 
+      <Pagination page={ticketsPage} totalPages={ticketsTotalPages} onPageChange={setTicketsPage} />
+
       {filtered.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-zinc-300 py-16 dark:border-zinc-700">
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
@@ -694,12 +752,15 @@ function ActivitySection({ activities }: { activities: ActivityLog[] }) {
   const filtered =
     filter === "all" ? activities : activities.filter((a) => a.action === filter);
 
+  const { paginatedItems: paginatedActivities, page: activitiesPage, totalPages: activitiesTotalPages, setPage: setActivitiesPage } = usePagination(filtered);
+
   const ALLOWED_ACTIONS = new Set([
     "login",
     "login_failed",
     "logout",
     "user_approved",
     "user_status_changed",
+    "user_role_changed",
     "user_created",
     "staff_created",
     "staff_updated",
@@ -748,7 +809,7 @@ function ActivitySection({ activities }: { activities: ActivityLog[] }) {
 
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {filtered.map((log) => (
+          {paginatedActivities.map((log) => (
             <div key={log.id} className="flex flex-wrap items-start gap-3 px-5 py-3">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -779,6 +840,7 @@ function ActivitySection({ activities }: { activities: ActivityLog[] }) {
             </div>
           ))}
         </div>
+        <Pagination page={activitiesPage} totalPages={activitiesTotalPages} onPageChange={setActivitiesPage} />
         {filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-zinc-400">
             <p className="text-sm">No activity logs yet.</p>
@@ -806,6 +868,8 @@ function SessionsSection() {
   const [revoking, setRevoking] = useState<string | null>(null);
   const [revokingAll, setRevokingAll] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const { paginatedItems: paginatedSessions, page: sessionsPage, totalPages: sessionsTotalPages, setPage: setSessionsPage } = usePagination(sessions);
 
   useEffect(() => {
     let active = true;
@@ -905,7 +969,7 @@ function SessionsSection() {
               No active sessions found.
             </div>
           ) : (
-            sessions.map((session) => (
+            paginatedSessions.map((session) => (
               <div
                 key={session.id}
                 className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"
@@ -942,6 +1006,7 @@ function SessionsSection() {
             ))
           )}
         </div>
+        <Pagination page={sessionsPage} totalPages={sessionsTotalPages} onPageChange={setSessionsPage} />
       </div>
     </div>
   );
@@ -1108,6 +1173,8 @@ function LogsSection({ logs }: { logs: SystemLog[] }) {
       ? logs
       : logs.filter((l) => l.level === levelFilter);
 
+  const { paginatedItems: paginatedLogs, page: logsPage, totalPages: logsTotalPages, setPage: setLogsPage } = usePagination(filtered);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
@@ -1128,7 +1195,7 @@ function LogsSection({ logs }: { logs: SystemLog[] }) {
 
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {filtered.map((log) => (
+          {paginatedLogs.map((log) => (
             <div key={log.id} className="px-5 py-3">
               <div className="flex flex-wrap items-start gap-3">
                 <span
@@ -1158,6 +1225,7 @@ function LogsSection({ logs }: { logs: SystemLog[] }) {
             </div>
           ))}
         </div>
+        <Pagination page={logsPage} totalPages={logsTotalPages} onPageChange={setLogsPage} />
         {filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-zinc-400">
             <p className="text-sm">No logs for this level.</p>
@@ -1290,7 +1358,14 @@ function SettingsSection({ user, onOpenProfile }: { user: { name: string; email:
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function SuperAdminDashboard() {
-  const [activeSection, setActiveSection] = useState<NavSection>("overview");
+  const [activeSection, setActiveSection] = useState<NavSection>(() => {
+    if (typeof window === "undefined") return "overview";
+    const saved = localStorage.getItem("superadmin_active_section");
+    if (saved && ["overview", "users", "tickets", "activity", "sessions", "system", "logs", "settings"].includes(saved)) {
+      return saved as NavSection;
+    }
+    return "overview";
+  });
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const saved = localStorage.getItem("theme");
@@ -1330,10 +1405,29 @@ export default function SuperAdminDashboard() {
   }, [theme]);
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("superadmin_active_section", activeSection);
+    }
+  }, [activeSection]);
+
+  useEffect(() => {
     if (!user || user.role !== "superadmin") return;
     let active = true;
     (async () => {
       setLoadError(null);
+
+      const cachedUsers = getCachedData<SystemUser[]>("superadmin_users");
+      const cachedTickets = getCachedData<Ticket[]>("superadmin_tickets");
+      const cachedLogs = getCachedData<SystemLog[]>("superadmin_logs");
+      const cachedActivities = getCachedData<ActivityLog[]>("superadmin_activities");
+      const cachedHealth = getCachedData<SystemHealth>("superadmin_health");
+
+      if (cachedUsers?.data) setUsers(cachedUsers.data);
+      if (cachedTickets?.data) setTickets(cachedTickets.data);
+      if (cachedLogs?.data) setLogs(cachedLogs.data);
+      if (cachedActivities?.data) setActivities(cachedActivities.data);
+      if (cachedHealth?.data) setHealth(cachedHealth.data);
+
       const [healthRes, usersRes, ticketsRes, logsRes, activityRes] = await Promise.all([
         supabase
           .from("system_health")
@@ -1369,12 +1463,32 @@ export default function SuperAdminDashboard() {
         );
         return;
       }
-      if (healthRes.data?.length) setHealth(toSystemHealth(healthRes.data[0]));
-      if (usersRes.users) setUsers(usersRes.users);
-      else if (Array.isArray(usersRes)) setUsers(usersRes);
-      if (ticketsRes.data) setTickets(ticketsRes.data.map(toTicket));
-      if (logsRes.data) setLogs(logsRes.data.map(toSystemLog));
-      if (activityRes.data) setActivities(activityRes.data);
+      if (healthRes.data?.length) {
+        const health = toSystemHealth(healthRes.data[0]);
+        setHealth(health);
+        setCachedData("superadmin_health", health, 30_000);
+      }
+      if (usersRes.users) {
+        setUsers(usersRes.users);
+        setCachedData("superadmin_users", usersRes.users, 60_000);
+      } else if (Array.isArray(usersRes)) {
+        setUsers(usersRes);
+        setCachedData("superadmin_users", usersRes, 60_000);
+      }
+      if (ticketsRes.data) {
+        const tickets = ticketsRes.data.map(toTicket);
+        setTickets(tickets);
+        setCachedData("superadmin_tickets", tickets, 30_000);
+      }
+      if (logsRes.data) {
+        const logs = logsRes.data.map(toSystemLog);
+        setLogs(logs);
+        setCachedData("superadmin_logs", logs, 60_000);
+      }
+      if (activityRes.data) {
+        setActivities(activityRes.data);
+        setCachedData("superadmin_activities", activityRes.data, 30_000);
+      }
     })();
     return () => {
       active = false;
@@ -1389,6 +1503,18 @@ export default function SuperAdminDashboard() {
 
     const refresh = async () => {
       try {
+        const cachedUsers = getCachedData<SystemUser[]>("superadmin_users");
+        const cachedTickets = getCachedData<Ticket[]>("superadmin_tickets");
+        const cachedLogs = getCachedData<SystemLog[]>("superadmin_logs");
+        const cachedActivities = getCachedData<ActivityLog[]>("superadmin_activities");
+        const cachedHealth = getCachedData<SystemHealth>("superadmin_health");
+
+        if (cachedUsers?.data) setUsers(cachedUsers.data);
+        if (cachedTickets?.data) setTickets(cachedTickets.data);
+        if (cachedLogs?.data) setLogs(cachedLogs.data);
+        if (cachedActivities?.data) setActivities(cachedActivities.data);
+        if (cachedHealth?.data) setHealth(cachedHealth.data);
+
         const [healthRes, usersRes, ticketsRes, logsRes, activityRes] = await Promise.all([
           supabase
             .from("system_health")
@@ -1431,12 +1557,32 @@ export default function SuperAdminDashboard() {
           );
           return;
         }
-        if (healthRes.data?.length) setHealth(toSystemHealth(healthRes.data[0]));
-        if (usersRes.users) setUsers(usersRes.users);
-        else if (Array.isArray(usersRes)) setUsers(usersRes);
-        if (ticketsRes.data) setTickets(ticketsRes.data.map(toTicket));
-        if (logsRes.data) setLogs(logsRes.data.map(toSystemLog));
-        if (activityRes.data) setActivities(activityRes.data);
+        if (healthRes.data?.length) {
+          const health = toSystemHealth(healthRes.data[0]);
+          setHealth(health);
+          setCachedData("superadmin_health", health, 30_000);
+        }
+        if (usersRes.users) {
+          setUsers(usersRes.users);
+          setCachedData("superadmin_users", usersRes.users, 60_000);
+        } else if (Array.isArray(usersRes)) {
+          setUsers(usersRes);
+          setCachedData("superadmin_users", usersRes, 60_000);
+        }
+        if (ticketsRes.data) {
+          const tickets = ticketsRes.data.map(toTicket);
+          setTickets(tickets);
+          setCachedData("superadmin_tickets", tickets, 30_000);
+        }
+        if (logsRes.data) {
+          const logs = logsRes.data.map(toSystemLog);
+          setLogs(logs);
+          setCachedData("superadmin_logs", logs, 60_000);
+        }
+        if (activityRes.data) {
+          setActivities(activityRes.data);
+          setCachedData("superadmin_activities", activityRes.data, 30_000);
+        }
       } catch (err) {
         if (mounted) {
           setLoadError(err instanceof Error ? err.message : "Failed to load data");
@@ -1551,6 +1697,45 @@ export default function SuperAdminDashboard() {
       target_type: "user",
       target_id: id,
       details: `Set user ${current.email} to ${next}`,
+    });
+  };
+
+  const handleEditRole = async (id: string, role: UserRole) => {
+    setActionError(null);
+    const current = users.find((u) => u.id === id);
+    if (!current || current.role === role) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("accounts")
+      .update({ role })
+      .eq("id", id);
+
+    if (error) {
+      setActionError(error.message);
+      return;
+    }
+
+    const { data: verify } = await supabase
+      .from("accounts")
+      .select("role")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (verify?.role !== role) {
+      setActionError("Failed to update user role");
+      return;
+    }
+
+    setUsers((prev) =>
+      prev.map((u) => (u.id === id ? { ...u, role } : u))
+    );
+    await logActivity({
+      action: "user_role_changed",
+      target_type: "user",
+      target_id: id,
+      details: `Changed ${current.email} role from ${current.role} to ${role}`,
     });
   };
 
@@ -1671,9 +1856,9 @@ export default function SuperAdminDashboard() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-zinc-200 dark:border-zinc-800">
+      <header className="sticky top-0 z-50 border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 py-2">
+          <div className="flex min-h-16 flex-nowrap items-center justify-between gap-2 py-2">
             <div className="flex items-center gap-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground text-background">
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -1776,9 +1961,9 @@ export default function SuperAdminDashboard() {
       )}
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex gap-8 py-8">
+        <div className="flex gap-8 pt-8 items-start">
           {/* Sidebar Nav */}
-          <aside className="hidden w-48 shrink-0 lg:block">
+          <aside className="hidden w-48 shrink-0 lg:block sticky top-20 h-[calc(100vh-5rem)] overflow-y-auto">
             <nav className="space-y-1">
               {navItems.map(({ key, label, icon }) => (
                 <button
@@ -1822,12 +2007,12 @@ export default function SuperAdminDashboard() {
                 >
                   {label}
                 </button>
-              ))}
-            </div>
-          </div>
+          ))}
+        </div>
+      </div>
 
           {/* Main Content */}
-          <main className="min-w-0 flex-1">
+          <main className="min-w-0 flex-1 pb-8">
             <h2 className="mb-6 text-xl font-semibold text-foreground">
               {sectionTitles[activeSection]}
             </h2>
@@ -1844,6 +2029,7 @@ export default function SuperAdminDashboard() {
                 users={users}
                 onApproveUser={handleApproveUser}
                 onToggleStatus={handleToggleStatus}
+                onEditRole={handleEditRole}
               />
             )}
             {activeSection === "tickets" && <TicketsSection tickets={tickets} />}
