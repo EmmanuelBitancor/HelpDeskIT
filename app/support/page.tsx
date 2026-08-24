@@ -90,11 +90,6 @@ export default function SupportDashboard() {
     const refresh = async (): Promise<SupportStaff | null> => {
       if (!user?.email || !mounted) return null;
 
-      const cachedStaff = getCachedData<SupportStaff[]>("support_staff");
-      const cachedTickets = getCachedData<Ticket[]>("support_tickets");
-      if (cachedStaff?.data) setStaffList(cachedStaff.data);
-      if (cachedTickets?.data) setTickets(cachedTickets.data);
-
       try {
         const [{ data: ticketsData, error: ticketsError }, { data: staffData, error: staffError }] = await Promise.all([
           supabase.from("tickets").select("*").order("created_at", { ascending: false }),
@@ -153,18 +148,13 @@ export default function SupportDashboard() {
     };
 
     (async () => {
+      const cachedStaff = getCachedData<SupportStaff[]>("support_staff");
+      const cachedTickets = getCachedData<Ticket[]>("support_tickets");
+      if (cachedStaff?.data) setStaffList(cachedStaff.data);
+      if (cachedTickets?.data) setTickets(cachedTickets.data);
       const resolvedMe = await refresh();
-      if (!mounted || !resolvedMe) return;
-      const assignedTo = resolvedMe.id;
-      channels.push(
-        supabase.channel("realtime-support-tickets").on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "tickets", filter: `assigned_to=eq.${assignedTo}` },
-          () => {
-            refresh();
-          }
-        )
-      );
+      if (!mounted) return;
+
       channels.push(
         supabase.channel("realtime-support-staff").on(
           "postgres_changes",
@@ -174,6 +164,20 @@ export default function SupportDashboard() {
           }
         )
       );
+
+      if (resolvedMe) {
+        const assignedTo = resolvedMe.id;
+        channels.push(
+          supabase.channel("realtime-support-tickets").on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "tickets", filter: `assigned_to=eq.${assignedTo}` },
+            () => {
+              refresh();
+            }
+          )
+        );
+      }
+
       channels.forEach((channel) => channel.subscribe());
     })();
 

@@ -264,6 +264,9 @@ export default function AdminDashboard() {
     if (cachedStaff?.data) {
       setStaffList(cachedStaff.data);
     }
+    if (cachedTickets?.data && cachedStaff?.data) {
+      setIsLoading(false);
+    }
     refresh();
 
     const channels = [
@@ -386,16 +389,22 @@ export default function AdminDashboard() {
 
   const handleSaveStaff = async () => {
     setStaffFormError(null);
+    const isOtherRole = staffForm.role === "__other__";
     if (
       !staffForm.name.trim() ||
       !staffForm.email.trim() ||
-      (!staffForm.role.trim() && !staffForm.customRole.trim())
-    )
+      (!isOtherRole && !staffForm.role.trim()) ||
+      (isOtherRole && !staffForm.customRole.trim())
+    ) {
+      setStaffFormError("Name, email, and role are required.");
       return;
+    }
 
     const name = staffForm.name.trim();
     const email = staffForm.email.trim();
-    const roleTitle = staffForm.customRole.trim() || staffForm.role.trim();
+    const roleTitle = isOtherRole
+      ? staffForm.customRole.trim()
+      : staffForm.role.trim();
 
       if (editingStaff) {
         const payload = { name, email, role: roleTitle };
@@ -407,31 +416,20 @@ export default function AdminDashboard() {
           setStaffFormError(staffError.message);
           return;
         }
-        setStaffList((prev) =>
-          prev.map((s) => (s.id === editingStaff.id ? { ...s, ...payload } : s)),
-        );
-        const { data: updatedAccounts, error: accountError } = await supabase
+
+        const { error: accountError } = await supabase
           .from("accounts")
-          .update({ name, email, avatar: getInitials(name) })
-          .eq("email", editingStaff.email)
-          .eq("role", "support")
-          .select();
+          .update({ email, name, avatar: getInitials(name) })
+          .eq("email", editingStaff.email);
 
         if (accountError) {
           setStaffFormError(accountError.message);
           return;
         }
 
-        if (!updatedAccounts || updatedAccounts.length === 0) {
-          const { error: insertError } = await supabase
-            .from("accounts")
-            .insert({ email, name, role: "support", avatar: getInitials(name) });
-
-          if (insertError) {
-            setStaffFormError(insertError.message);
-            return;
-          }
-        }
+        setStaffList((prev) =>
+          prev.map((s) => (s.id === editingStaff.id ? { ...s, ...payload } : s)),
+        );
         await logActivity({
           action: "staff_updated",
           target_type: "staff",
@@ -460,13 +458,20 @@ export default function AdminDashboard() {
           setStaffFormError(error.message);
           return;
         }
-        setStaffList((prev) => [...prev, newStaff]);
-        await supabase
+
+        const { error: accountError } = await supabase
           .from("accounts")
           .upsert(
             { email, name, role: "support", avatar: getInitials(name) },
             { onConflict: "email", ignoreDuplicates: true }
           );
+
+        if (accountError) {
+          setStaffFormError(accountError.message);
+          return;
+        }
+
+        setStaffList((prev) => [...prev, newStaff]);
         await logActivity({
           action: "staff_created",
           target_type: "staff",

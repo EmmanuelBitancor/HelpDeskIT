@@ -1,21 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-
-const ALLOWED_ACTIONS = new Set([
-  "login",
-  "login_failed",
-  "logout",
-  "user_approved",
-  "user_status_changed",
-  "user_created",
-  "staff_created",
-  "staff_updated",
-  "staff_status_changed",
-  "staff_deleted",
-  "ticket_created",
-  "ticket_updated",
-  "ticket_assigned",
-]);
+import { ALLOWED_ACTIONS } from "@/lib/activity";
 
 const MAX_FIELD_LENGTH = 500;
 
@@ -38,18 +23,20 @@ function getClientIdentifier(request: NextRequest): string {
   );
 }
 
-async function checkRateLimit(identifier: string) {
+async function checkRateLimit(identifier: string, namespace = "default") {
   const now = Date.now();
-  const entry = memoryStore.get(identifier);
+  const key = `${namespace}:${identifier}`;
+
+  const entry = memoryStore.get(key);
 
   if (entry && now > entry.resetAt) {
-    memoryStore.delete(identifier);
+    memoryStore.delete(key);
   }
 
   if (memoryStore.size > 10000) {
-    for (const [key, val] of memoryStore.entries()) {
+    for (const [k, val] of memoryStore.entries()) {
       if (now > val.resetAt) {
-        memoryStore.delete(key);
+        memoryStore.delete(k);
       }
     }
     if (memoryStore.size > 10000) {
@@ -58,10 +45,10 @@ async function checkRateLimit(identifier: string) {
     }
   }
 
-  const current = memoryStore.get(identifier);
+  const current = memoryStore.get(key);
 
   if (!current) {
-    memoryStore.set(identifier, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
+    memoryStore.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
     return { success: true, remaining: RATE_LIMIT_REQUESTS - 1 };
   }
 
@@ -76,7 +63,7 @@ async function checkRateLimit(identifier: string) {
 export async function POST(request: NextRequest) {
   try {
     const identifier = getClientIdentifier(request);
-    const rateLimit = await checkRateLimit(identifier);
+    const rateLimit = await checkRateLimit(identifier, "activity");
 
     if (!rateLimit.success) {
       return NextResponse.json(
@@ -91,7 +78,6 @@ export async function POST(request: NextRequest) {
       target_type,
       target_id,
       details,
-      email: loginEmail,
     } = body;
 
     const normalizedAction = typeof action === "string" ? action.trim() : "";
@@ -104,46 +90,6 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
-
-    if (normalizedAction === "login_failed") {
-      const email = typeof loginEmail === "string" ? loginEmail.trim() : "";
-      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        return NextResponse.json(
-          { error: "A valid email is required for login_failed" },
-          { status: 400 }
-        );
-      }
-
-      const logId = `act-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      const derivedIp =
-        request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-        request.headers.get("x-real-ip") ||
-        null;
-      const derivedUserAgent = request.headers.get("user-agent") || null;
-
-      const { error } = await supabase.from("activity_logs").insert({
-        id: logId,
-        actor_id: null,
-        actor_name: email,
-        actor_role: "user",
-        action: normalizedAction,
-        target_type: boundedString(target_type),
-        target_id: boundedString(target_id),
-        details: boundedString(details) || "Login attempt failed",
-        ip_address: derivedIp,
-        user_agent: derivedUserAgent,
-      });
-
-      if (error) {
-        console.error("Failed to log activity:", error);
-        return NextResponse.json(
-          { error: "Failed to log activity" },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json({ success: true });
-    }
 
     const {
       data: { user },

@@ -5,6 +5,7 @@ const customPort = Number(process.env.SMTP_PORT || "587");
 const customUser = process.env.SMTP_USER;
 const customPass = process.env.SMTP_PASS;
 const customFrom = process.env.SMTP_FROM || customUser || "no-reply@example.com";
+const isDevelopment = process.env.NODE_ENV !== "production";
 
 let cachedTransporter: {
   transporter: nodemailer.Transporter | null;
@@ -22,9 +23,15 @@ async function getTransporter() {
       host: customHost,
       port: customPort,
       secure: customPort === 465,
+      requireTLS: customPort !== 465,
       auth: { user: customUser, pass: customPass },
     });
     cachedTransporter = { transporter, from: customFrom };
+    return cachedTransporter;
+  }
+
+  if (!isDevelopment) {
+    cachedTransporter = { transporter: null, from: customFrom };
     return cachedTransporter;
   }
 
@@ -50,23 +57,27 @@ export async function sendEmail({
   subject: string;
   html: string;
 }) {
-  const { transporter, from, testAccount } = await getTransporter();
+  try {
+    const { transporter, from, testAccount } = await getTransporter();
 
-  if (!transporter) {
-    console.warn("[email] No SMTP configured and Ethereal setup failed. Email not sent.");
-    return;
-  }
-
-  const info = await transporter.sendMail({ from, to, subject, html });
-
-  if (testAccount) {
-    const previewUrl = nodemailer.getTestMessageUrl(info);
-    if (previewUrl) {
-      console.log(`[email] Preview URL: ${previewUrl}`);
+    if (!transporter) {
+      console.warn("[email] No SMTP configured and Ethereal setup failed. Email not sent.");
+      return;
     }
+
+    const info = await transporter.sendMail({ from, to, subject, html });
+
+    if (testAccount) {
+      const previewUrl = nodemailer.getTestMessageUrl(info);
+      if (previewUrl) {
+        console.log(`[email] Preview URL: ${previewUrl}`);
+      }
+    }
+  } catch (error) {
+    console.error("[email] Delivery failed", error instanceof Error ? error.message : error);
   }
 }
 
 export function isEmailConfigured() {
-  return true;
+  return !!(customHost && customUser && customPass);
 }

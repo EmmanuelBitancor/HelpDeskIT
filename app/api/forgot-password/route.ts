@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     }
 
     const identifier = getClientIdentifier(request);
-    const rateLimit = await checkRateLimit(identifier);
+    const rateLimit = await checkRateLimit(identifier, "forgot-password");
 
     if (!rateLimit.success) {
       return NextResponse.json(

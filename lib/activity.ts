@@ -14,6 +14,23 @@ export type ActivityAction =
   | "ticket_updated"
   | "ticket_assigned";
 
+export const ALLOWED_ACTIONS = new Set<ActivityAction>([
+  "login",
+  "login_failed",
+  "logout",
+  "user_approved",
+  "user_status_changed",
+  "user_role_changed",
+  "user_created",
+  "staff_created",
+  "staff_updated",
+  "staff_status_changed",
+  "staff_deleted",
+  "ticket_created",
+  "ticket_updated",
+  "ticket_assigned",
+]);
+
 export async function logActivity(params: {
   action: ActivityAction;
   target_type?: string;

@@ -12,9 +12,9 @@ export function Pagination({ page, totalPages, onPageChange }: PaginationProps) 
   const pages = new Set<number>();
   pages.add(1);
   pages.add(totalPages);
-  if (page > 3) pages.add(page - 1);
+  if (page > 1) pages.add(page - 1);
   pages.add(page);
-  if (page < totalPages - 2) pages.add(page + 1);
+  if (page < totalPages) pages.add(page + 1);
   if (page > 2) pages.add(page - 2);
   if (page < totalPages - 1) pages.add(page + 2);
 

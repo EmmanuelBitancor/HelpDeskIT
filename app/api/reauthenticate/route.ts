@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     }
 
     const identifier = getClientIdentifier(request, user.id);
-    const rateLimit = await checkRateLimit(identifier);
+    const rateLimit = await checkRateLimit(identifier, "reauthenticate");
 
     if (!rateLimit.success) {
       return NextResponse.json(

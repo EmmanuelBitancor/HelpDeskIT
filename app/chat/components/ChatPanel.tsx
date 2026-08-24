@@ -57,24 +57,16 @@ export default function ChatPanel({
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const newConversationRef = useRef<HTMLDivElement>(null);
   const selectedIdRef = useRef<string | null>(null);
 
-  const unreadCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const message of messages) {
-      if (message.sender_id !== currentUser.id && !message.read_at) {
-        counts.set(message.conversation_id, (counts.get(message.conversation_id) || 0) + 1);
-      }
-    }
-    return counts;
-  }, [messages, currentUser.id]);
-
   const totalUnread = useMemo(() => {
     let total = 0;
-    for (const count of unreadCounts.values()) {
+    for (const count of Object.values(unreadCounts)) {
       total += count;
     }
     return total;
@@ -137,6 +129,9 @@ export default function ChatPanel({
       const data = await res.json();
       if (res.ok && data.conversations) {
         setConversations(data.conversations);
+        if (data.unreadCounts) {
+          setUnreadCounts(data.unreadCounts);
+        }
       }
     } catch {
       // ignore
@@ -167,6 +162,9 @@ export default function ChatPanel({
   useEffect(() => {
     if (showNewConversation) return;
 
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.focus();
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         onClose();
@@ -194,7 +192,12 @@ export default function ChatPanel({
     };
 
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      if (previousFocusRef.current && previousFocusRef.current.isConnected) {
+        previousFocusRef.current.focus();
+      }
+    };
   }, [showNewConversation, onClose, getFocusableElements]);
 
   useEffect(() => {
@@ -216,6 +219,10 @@ export default function ChatPanel({
           const newMessage = payload.new as Message;
           if (newMessage.sender_id !== currentUser.id) {
             setMessages((prev) => [...prev, newMessage]);
+            setUnreadCounts((prev) => ({
+              ...prev,
+              [newMessage.conversation_id]: (prev[newMessage.conversation_id] || 0) + 1
+            }));
           }
         }
       )
@@ -236,6 +243,7 @@ export default function ChatPanel({
       const data = await res.json();
       if (selectedIdRef.current === conversation.id && res.ok && data.messages) {
         setMessages(data.messages);
+        setUnreadCounts((prev) => ({ ...prev, [conversation.id]: 0 }));
       }
     } catch {
       // ignore
@@ -255,6 +263,7 @@ export default function ChatPanel({
         throw new Error(data.error || `Server error: ${res.status}`);
       }
       if (data.conversation) {
+        selectedIdRef.current = data.conversation.id;
         setConversations((prev) =>
           prev.some((c) => c.id === data.conversation.id) ? prev : [data.conversation, ...prev]
         );
@@ -357,7 +366,7 @@ export default function ChatPanel({
         </div>
 
             {error && (
-              <div className="border-b border-red-200 bg-red-50 px-6 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400">
+              <div role="alert" className="border-b border-red-200 bg-red-50 px-6 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400">
                 {error}
                 <button
                   onClick={() => setError(null)}
@@ -397,7 +406,7 @@ export default function ChatPanel({
                 <div className="p-4 text-center text-sm text-zinc-400">No conversations yet</div>
               ) : (
                 conversations.map((conversation) => {
-                  const unread = unreadCounts.get(conversation.id) || 0;
+                  const unread = unreadCounts[conversation.id] || 0;
                   return (
                     <button
                       key={conversation.id}

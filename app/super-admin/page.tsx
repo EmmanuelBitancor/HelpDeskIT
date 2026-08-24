@@ -918,6 +918,7 @@ function SessionsSection() {
 
   const revokeAllUserSessions = async (userId: string) => {
     setRevokingAll(userId);
+    setError(null);
     try {
       const res = await fetch("/api/sessions", {
         method: "DELETE",
@@ -1410,111 +1411,26 @@ export default function SuperAdminDashboard() {
     }
   }, [activeSection]);
 
-  useEffect(() => {
-    if (!user || user.role !== "superadmin") return;
-    let active = true;
-    (async () => {
-      setLoadError(null);
-
-      const cachedUsers = getCachedData<SystemUser[]>("superadmin_users");
-      const cachedTickets = getCachedData<Ticket[]>("superadmin_tickets");
-      const cachedLogs = getCachedData<SystemLog[]>("superadmin_logs");
-      const cachedActivities = getCachedData<ActivityLog[]>("superadmin_activities");
-      const cachedHealth = getCachedData<SystemHealth>("superadmin_health");
-
-      if (cachedUsers?.data) setUsers(cachedUsers.data);
-      if (cachedTickets?.data) setTickets(cachedTickets.data);
-      if (cachedLogs?.data) setLogs(cachedLogs.data);
-      if (cachedActivities?.data) setActivities(cachedActivities.data);
-      if (cachedHealth?.data) setHealth(cachedHealth.data);
-
-      const [healthRes, usersRes, ticketsRes, logsRes, activityRes] = await Promise.all([
-        supabase
-          .from("system_health")
-          .select("*")
-          .order("recorded_at", { ascending: false })
-          .limit(1),
-        fetch("/api/users").then((res) => res.json()),
-        supabase
-          .from("tickets")
-          .select("*, support_staff!left(name)")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("system_logs")
-          .select("*")
-          .order("timestamp", { ascending: false })
-          .limit(200),
-        supabase
-          .from("activity_logs")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(100),
-      ]);
-      if (!active) return;
-      const firstError =
-        healthRes.error ??
-        (usersRes.error && usersRes.error) ??
-        ticketsRes.error ??
-        logsRes.error ??
-        activityRes.error;
-      if (firstError) {
-        setLoadError(
-          typeof firstError === "string" ? firstError : firstError.message || "Failed to load"
-        );
-        return;
-      }
-      if (healthRes.data?.length) {
-        const health = toSystemHealth(healthRes.data[0]);
-        setHealth(health);
-        setCachedData("superadmin_health", health, 30_000);
-      }
-      if (usersRes.users) {
-        setUsers(usersRes.users);
-        setCachedData("superadmin_users", usersRes.users, 60_000);
-      } else if (Array.isArray(usersRes)) {
-        setUsers(usersRes);
-        setCachedData("superadmin_users", usersRes, 60_000);
-      }
-      if (ticketsRes.data) {
-        const tickets = ticketsRes.data.map(toTicket);
-        setTickets(tickets);
-        setCachedData("superadmin_tickets", tickets, 30_000);
-      }
-      if (logsRes.data) {
-        const logs = logsRes.data.map(toSystemLog);
-        setLogs(logs);
-        setCachedData("superadmin_logs", logs, 60_000);
-      }
-      if (activityRes.data) {
-        setActivities(activityRes.data);
-        setCachedData("superadmin_activities", activityRes.data, 30_000);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [user]);
-
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!user || user.role !== "superadmin") return;
     let mounted = true;
 
+    const cachedUsers = getCachedData<SystemUser[]>("superadmin_users");
+    const cachedTickets = getCachedData<Ticket[]>("superadmin_tickets");
+    const cachedLogs = getCachedData<SystemLog[]>("superadmin_logs");
+    const cachedActivities = getCachedData<ActivityLog[]>("superadmin_activities");
+    const cachedHealth = getCachedData<SystemHealth>("superadmin_health");
+
+    if (cachedUsers?.data) setUsers(cachedUsers.data);
+    if (cachedTickets?.data) setTickets(cachedTickets.data);
+    if (cachedLogs?.data) setLogs(cachedLogs.data);
+    if (cachedActivities?.data) setActivities(cachedActivities.data);
+    if (cachedHealth?.data) setHealth(cachedHealth.data);
+
     const refresh = async () => {
       try {
-        const cachedUsers = getCachedData<SystemUser[]>("superadmin_users");
-        const cachedTickets = getCachedData<Ticket[]>("superadmin_tickets");
-        const cachedLogs = getCachedData<SystemLog[]>("superadmin_logs");
-        const cachedActivities = getCachedData<ActivityLog[]>("superadmin_activities");
-        const cachedHealth = getCachedData<SystemHealth>("superadmin_health");
-
-        if (cachedUsers?.data) setUsers(cachedUsers.data);
-        if (cachedTickets?.data) setTickets(cachedTickets.data);
-        if (cachedLogs?.data) setLogs(cachedLogs.data);
-        if (cachedActivities?.data) setActivities(cachedActivities.data);
-        if (cachedHealth?.data) setHealth(cachedHealth.data);
-
         const [healthRes, usersRes, ticketsRes, logsRes, activityRes] = await Promise.all([
           supabase
             .from("system_health")
