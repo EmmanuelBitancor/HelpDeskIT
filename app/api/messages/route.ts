@@ -64,14 +64,25 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    await supabase
+    const readAt = new Date().toISOString();
+    const { data: updated, error: readError } = await supabase
       .from("messages")
-      .update({ read_at: new Date().toISOString() })
+      .update({ read_at: readAt })
       .eq("conversation_id", conversationId)
       .neq("sender_id", account.id)
-      .is("read_at", null);
+      .is("read_at", null)
+      .select("id");
 
-    return NextResponse.json({ messages: messages || [] });
+    if (readError) {
+      console.error("Mark-as-read error:", readError);
+    }
+
+    const updatedIds = new Set((updated || []).map((m) => m.id));
+    const result = (messages || []).map((m) =>
+      updatedIds.has(m.id) ? { ...m, read_at: readAt } : m
+    );
+
+    return NextResponse.json({ messages: result });
   } catch (error) {
     console.error("Messages fetch error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

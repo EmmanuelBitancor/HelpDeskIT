@@ -24,7 +24,7 @@ export async function GET() {
 
     const unreadMessages = await countUnreadMessages(supabase, account.id);
     const pendingUsers = await countPendingUsers(supabase, account);
-    const systemErrors = await countSystemErrors(supabase);
+    const systemErrors = await countSystemErrors(supabase, account);
     const recentActivities = await countRecentActivities(supabase, account.id);
 
     return NextResponse.json({
@@ -51,7 +51,7 @@ async function countUnreadMessages(supabase: Awaited<ReturnType<typeof createCli
   const { count, error } = await supabase
     .from("messages")
     .select("*", { count: "exact", head: true })
-    .eq("read_at", null)
+    .is("read_at", null)
     .neq("sender_id", userId)
     .in("conversation_id", conversationIds);
 
@@ -81,7 +81,14 @@ async function countPendingUsers(supabase: Awaited<ReturnType<typeof createClien
   return count || 0;
 }
 
-async function countSystemErrors(supabase: Awaited<ReturnType<typeof createClient>>): Promise<number> {
+async function countSystemErrors(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  account: { role: string }
+): Promise<number> {
+  if (account.role !== "superadmin" && account.role !== "admin") {
+    return 0;
+  }
+
   const { count, error } = await supabase
     .from("system_logs")
     .select("*", { count: "exact", head: true })
@@ -100,7 +107,8 @@ async function countRecentActivities(supabase: Awaited<ReturnType<typeof createC
   const { count, error } = await supabase
     .from("activity_logs")
     .select("*", { count: "exact", head: true })
-    .or(`actor_id.eq.${userId},target_type.eq.user,target_type.eq.ticket`)
+    .eq("actor_id", userId)
+    .in("target_type", ["user", "ticket"])
     .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
 
   if (error) {

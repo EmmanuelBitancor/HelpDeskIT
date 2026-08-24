@@ -16,7 +16,7 @@ function getClientIdentifier(request: NextRequest, fallbackUserId?: string): str
   );
 }
 
-async function checkRateLimit(identifier: string) {
+async function checkRateLimit(identifier: string, namespace = "default") {
   const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
   const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
 
@@ -31,21 +31,22 @@ async function checkRateLimit(identifier: string) {
       analytics: true,
     });
 
-    const { success, remaining } = await ratelimit.limit(identifier);
+    const { success, remaining } = await ratelimit.limit(`${namespace}:${identifier}`);
     return { success, remaining };
   }
 
   const now = Date.now();
+  const key = `${namespace}:${identifier}`;
 
   if (memoryStore.size >= MAX_MEMORY_ENTRIES) {
     let oldestKey: string | undefined;
     let oldestReset = Infinity;
-    for (const [key, entry] of memoryStore.entries()) {
+    for (const [k, entry] of memoryStore.entries()) {
       if (now > entry.resetAt) {
-        memoryStore.delete(key);
+        memoryStore.delete(k);
       } else if (entry.resetAt < oldestReset) {
         oldestReset = entry.resetAt;
-        oldestKey = key;
+        oldestKey = k;
       }
     }
     if (memoryStore.size >= MAX_MEMORY_ENTRIES && oldestKey) {
@@ -53,16 +54,16 @@ async function checkRateLimit(identifier: string) {
     }
   }
 
-  const entry = memoryStore.get(identifier);
+  const entry = memoryStore.get(key);
 
   if (entry && now > entry.resetAt) {
-    memoryStore.delete(identifier);
+    memoryStore.delete(key);
   }
 
-  const current = memoryStore.get(identifier);
+  const current = memoryStore.get(key);
 
   if (!current) {
-    memoryStore.set(identifier, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
+    memoryStore.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
     return { success: true, remaining: RATE_LIMIT_REQUESTS - 1 };
   }
 
@@ -90,7 +91,7 @@ export async function POST(request: NextRequest) {
     }
 
     const identifier = getClientIdentifier(request, user.id);
-    const rateLimit = await checkRateLimit(identifier);
+    const rateLimit = await checkRateLimit(identifier, "chatbot");
 
     if (!rateLimit.success) {
       return NextResponse.json(
@@ -184,14 +185,25 @@ export async function POST(request: NextRequest) {
 
     let response: Response = new Response(null, { status: 500 });
     let lastError: { status: number; body: string } | null = null;
+    const OVERALL_BUDGET_MS = 25_000;
+    const deadline = Date.now() + OVERALL_BUDGET_MS;
+    let deadlineReached = false;
+    let fatal = false;
 
     for (const apiVersion of apiVersions) {
       for (const model of models) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          console.log("[chatbot] overall deadline reached, aborting fallback matrix");
+          deadlineReached = true;
+          break;
+        }
+
         const geminiUrl = `https://generativelanguage.googleapis.com/${apiVersion}/models/${model}:generateContent?key=${apiKey}`;
         console.log(`[chatbot] trying ${apiVersion}/${model}`);
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30_000);
+        const timeoutId = setTimeout(() => controller.abort(), Math.min(10_000, remaining));
 
         try {
           response = await fetch(geminiUrl, {
@@ -224,34 +236,42 @@ export async function POST(request: NextRequest) {
 
           if (response.status === 404) continue;
           response = new Response(null, { status: response.status });
+          fatal = true;
           break;
         } catch (fetchError) {
           clearTimeout(timeoutId);
           console.error(`[chatbot] ${apiVersion}/${model} network error:`, fetchError);
           lastError = { status: 500, body: String(fetchError) };
           response = new Response(null, { status: 500 });
+          fatal = true;
           break;
         }
       }
 
-      if (response.ok) break;
+      if (deadlineReached || fatal || response.ok) break;
     }
 
     if (!response.ok) {
+      if (Date.now() >= deadline) {
+        console.error("[chatbot] overall deadline exceeded");
+        return NextResponse.json(
+          { error: "AI service unavailable", details: "Overall timeout exceeded" },
+          { status: 504 }
+        );
+      }
+
       const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
       console.log("[chatbot] all models failed, checking available models...");
       try {
-        const listResp = await fetch(listUrl);
+        const listResp = await fetch(listUrl, {
+          signal: AbortSignal.timeout(Math.max(1_000, Math.min(5_000, deadline - Date.now()))),
+        });
         if (listResp.ok) {
           const listData = await listResp.json();
           const availableModels = (listData.models || [])
-            .filter((m: { name: string; supportedActions?: string[] }) => {
-              const name = m.name || "";
-              return (
-                name.includes("generateContent") &&
-                (m.supportedActions?.includes("generateContent") ?? true)
-              );
-            })
+            .filter((m: { name: string; supportedGenerationMethods?: string[] }) =>
+              m.supportedGenerationMethods?.includes("generateContent") ?? false
+            )
             .map((m: { name: string }) => m.name);
           console.log("[chatbot] available models:", availableModels);
           lastError = {

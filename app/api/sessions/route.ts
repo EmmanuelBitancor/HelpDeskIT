@@ -85,8 +85,8 @@ export async function POST(request: NextRequest) {
     }
 
     const sessionId = crypto.randomUUID();
-    const device =
-      typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 120) : "unknown";
+    const userAgent =
+      request.headers.get("user-agent")?.slice(0, 120) || "unknown";
     const ipAddress =
       request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
       request.headers.get("x-real-ip") ||
@@ -98,9 +98,9 @@ export async function POST(request: NextRequest) {
       user_email: account.email,
       user_name: account.name,
       user_role: account.role,
-      device,
+      device: userAgent,
       ip_address: ipAddress,
-      user_agent: device,
+      user_agent: userAgent,
       last_active: new Date().toISOString(),
       created_at: new Date().toISOString(),
     });

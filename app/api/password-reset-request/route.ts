@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     }
 
     const identifier = getClientIdentifier(request);
-    const ipRateLimit = await checkRateLimit(identifier);
+    const ipRateLimit = await checkRateLimit(identifier, "password-reset-request");
 
     if (!ipRateLimit.success) {
       return NextResponse.json(
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const emailRateLimit = await checkRateLimit(`email:${normalizedEmail}`);
+    const emailRateLimit = await checkRateLimit(`email:${normalizedEmail}`, "password-reset-request");
 
     if (!emailRateLimit.success) {
       return NextResponse.json(

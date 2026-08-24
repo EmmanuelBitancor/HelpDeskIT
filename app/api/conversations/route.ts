@@ -55,7 +55,28 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ conversations: data || [] });
+    const conversations = data || [];
+    const conversationIds = conversations.map((c) => c.id);
+    let unreadCounts: Record<string, number> = {};
+
+    if (conversationIds.length > 0) {
+      const { data: unreadMessages, error: unreadError } = await supabase
+        .from("messages")
+        .select("conversation_id")
+        .in("conversation_id", conversationIds)
+        .neq("sender_id", account.id)
+        .is("read_at", null);
+
+      if (unreadError) {
+        console.error("Unread counts query error:", unreadError);
+      } else if (unreadMessages) {
+        for (const msg of unreadMessages) {
+          unreadCounts[msg.conversation_id] = (unreadCounts[msg.conversation_id] || 0) + 1;
+        }
+      }
+    }
+
+    return NextResponse.json({ conversations, unreadCounts });
   } catch (error) {
     console.error("Conversations fetch error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -92,11 +113,19 @@ export async function POST(request: NextRequest) {
     if (ticket_id) {
       const { data: ticket } = await supabase
         .from("tickets")
-        .select("assigned_to")
+        .select("assigned_to, submitted_by")
         .eq("id", ticket_id)
         .maybeSingle();
 
-      if (!ticket?.assigned_to) {
+      if (!ticket) {
+        return NextResponse.json({ error: "Ticket not found" }, { status: 404 });
+      }
+
+      if (ticket.submitted_by !== account.email && !["support", "admin"].includes(account.role)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      if (!ticket.assigned_to) {
         return NextResponse.json(
           { error: "Ticket has no assigned support" },
           { status: 400 }
@@ -132,6 +161,13 @@ export async function POST(request: NextRequest) {
       resolvedStaffId = staffAccount.id;
       resolvedStaffRole = staffAccount.role;
     } else if (staff_email) {
+      if (typeof staff_email !== "string") {
+        return NextResponse.json(
+          { error: "Invalid staff_email format" },
+          { status: 400 }
+        );
+      }
+
       const { data: staffAccount } = await supabase
         .from("accounts")
         .select("id, role")
@@ -143,6 +179,10 @@ export async function POST(request: NextRequest) {
           { error: "Support account not found" },
           { status: 400 }
         );
+      }
+
+      if (account.role !== "support" && !["support", "admin"].includes(staffAccount.role)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
 
       resolvedStaffId = staffAccount.id;
