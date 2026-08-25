@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getCachedData, setCachedData, invalidateCache } from "@/lib/cache";
 
 const DEFAULT_TTL = 5 * 60 * 1000;
@@ -19,21 +19,35 @@ export function useCachedData<T>(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const fetchRef = useRef(fetchFn);
+  const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    fetchRef.current = fetchFn;
+  }, [fetchFn]);
+
   const refresh = useCallback(async () => {
     if (!enabled) return;
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchFn();
+      const result = await fetchRef.current();
+      if (requestId !== requestIdRef.current) return;
       setData(result);
       setCachedData(key, result, ttl);
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
       const message = err instanceof Error ? err.message : "Failed to load data";
       setError(message);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [fetchFn, key, ttl, enabled]);
+  }, [key, ttl, enabled]);
+
+  useEffect(() => () => {
+    requestIdRef.current++;
+  }, []);
 
   useEffect(() => {
     if (!enabled) return;
@@ -41,10 +55,8 @@ export function useCachedData<T>(
     if (cached?.data) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate cache on mount
       setData(cached.data);
-      refresh();
-    } else {
-      refresh();
     }
+    refresh();
   }, [key, ttl, enabled, refresh]);
 
   return {

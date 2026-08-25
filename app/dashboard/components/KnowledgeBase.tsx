@@ -213,7 +213,7 @@ export default function KnowledgeBase({ isOpen, onClose }: KnowledgeBaseProps) {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search FAQs, troubleshooting guides..."
+              placeholder="Search for articles, FAQs, and troubleshooting guides..."
               className="w-full rounded-lg border border-zinc-300 bg-white py-2.5 pl-9 pr-4 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
             />
           </div>
@@ -226,7 +226,7 @@ export default function KnowledgeBase({ isOpen, onClose }: KnowledgeBaseProps) {
                   : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
               }`}
             >
-              All
+              All Categories
             </button>
             {categories.map((category) => (
               <button
@@ -264,7 +264,7 @@ export default function KnowledgeBase({ isOpen, onClose }: KnowledgeBaseProps) {
                 No articles found
               </p>
               <p className="text-xs text-zinc-400 dark:text-zinc-500">
-                Try adjusting your search or category filter
+                Try adjusting your search terms or selecting a different category
               </p>
             </div>
           ) : (

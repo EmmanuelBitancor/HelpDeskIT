@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState, useRef, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { FORBIDDEN_ROUTE } from "@/context/authTypes";
 import SignOutButton from "@/components/SignOutButton";
 import { SuperAdminSkeleton, Skeleton } from "@/components/skeleton";
+import ForbiddenAccessModal from "@/components/ForbiddenAccessModal";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity";
 import { useNotifications } from "@/app/hooks/useNotifications";
@@ -877,8 +876,8 @@ function SessionsSection() {
       try {
         const res = await fetch("/api/sessions");
         const data = await res.json();
-        if (!res.ok) {
-          if (active) setError(data.error || "Failed to load sessions");
+           if (!res.ok) {
+          if (active) setError(data.error || "We couldn't load the active sessions. Please check your connection and try again.");
           return;
         }
         if (active && data.sessions) setSessions(data.sessions);
@@ -1385,17 +1384,28 @@ export default function SuperAdminDashboard() {
     errorRate: 0,
     queueDepth: 0,
   });
-  const [users, setUsers] = useState<SystemUser[]>([]);
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [logs, setLogs] = useState<SystemLog[]>([]);
-  const [activities, setActivities] = useState<ActivityLog[]>([]);
+  const [users, setUsers] = useState<SystemUser[]>(() => {
+    const cached = getCachedData<SystemUser[]>("superadmin_users");
+    return cached?.data || [];
+  });
+  const [tickets, setTickets] = useState<Ticket[]>(() => {
+    const cached = getCachedData<Ticket[]>("superadmin_tickets");
+    return cached?.data || [];
+  });
+  const [logs, setLogs] = useState<SystemLog[]>(() => {
+    const cached = getCachedData<SystemLog[]>("superadmin_logs");
+    return cached?.data || [];
+  });
+  const [activities, setActivities] = useState<ActivityLog[]>(() => {
+    const cached = getCachedData<ActivityLog[]>("superadmin_activities");
+    return cached?.data || [];
+  });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const { unreadMessages } = useNotifications();
 
-  const router = useRouter();
   const { user, loading } = useAuth();
 
   useEffect(() => {
@@ -1414,23 +1424,27 @@ export default function SuperAdminDashboard() {
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    if (loading) return;
+    if (!user || user.role !== "superadmin") {
+      fetch("/api/unauthorized-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "/super-admin",
+          reason: user ? `Insufficient role: ${user.role}` : "Not authenticated",
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        }),
+      }).catch(() => {});
+    }
+  }, [user, loading]);
+
+  useEffect(() => {
     if (!user || user.role !== "superadmin") return;
     let mounted = true;
 
-    const cachedUsers = getCachedData<SystemUser[]>("superadmin_users");
-    const cachedTickets = getCachedData<Ticket[]>("superadmin_tickets");
-    const cachedLogs = getCachedData<SystemLog[]>("superadmin_logs");
-    const cachedActivities = getCachedData<ActivityLog[]>("superadmin_activities");
-    const cachedHealth = getCachedData<SystemHealth>("superadmin_health");
-
-    if (cachedUsers?.data) setUsers(cachedUsers.data);
-    if (cachedTickets?.data) setTickets(cachedTickets.data);
-    if (cachedLogs?.data) setLogs(cachedLogs.data);
-    if (cachedActivities?.data) setActivities(cachedActivities.data);
-    if (cachedHealth?.data) setHealth(cachedHealth.data);
-
     const refresh = async () => {
       try {
+        setLoadError(null);
         const [healthRes, usersRes, ticketsRes, logsRes, activityRes] = await Promise.all([
           supabase
             .from("system_health")
@@ -1755,18 +1769,18 @@ export default function SuperAdminDashboard() {
     settings: "System Settings",
   };
 
-  useEffect(() => {
-    if (loading) return;
-    if (!user) {
-      router.replace("/");
-    } else if (user.role !== "superadmin") {
-      router.replace(FORBIDDEN_ROUTE);
-    }
-  }, [user, loading, router]);
-
-  if (loading) return <SuperAdminSkeleton />;
+if (loading) return <SuperAdminSkeleton />;
   if (!user || user.role !== "superadmin") {
-    return <SuperAdminSkeleton />;
+    return (
+      <>
+        <SuperAdminSkeleton />
+        <ForbiddenAccessModal
+          isOpen
+          onClose={() => {}}
+          attemptedPath="/super-admin"
+        />
+      </>
+    );
   }
 
   return (

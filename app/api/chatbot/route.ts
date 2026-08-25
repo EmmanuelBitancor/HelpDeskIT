@@ -173,13 +173,10 @@ export async function POST(request: NextRequest) {
       parts: [{ text: message }],
     });
 
-    const models = [
-      "gemini-3.6-flash",
-      "gemini-2.5-flash",
-      "gemini-2.0-flash",
-      "gemini-1.5-flash",
-      "gemini-1.5-pro",
-    ];
+    const models = (process.env.GEMINI_CHATBOT_MODELS || "gemini-3.7-flash,gemini-3.6-flash")
+      .split(",")
+      .map((m) => m.trim())
+      .filter(Boolean);
 
     const apiVersions = ["v1beta", "v1"];
 

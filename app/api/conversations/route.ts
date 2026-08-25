@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
 
     const conversations = data || [];
     const conversationIds = conversations.map((c) => c.id);
-    let unreadCounts: Record<string, number> = {};
+    const unreadCounts: Record<string, number> = {};
 
     if (conversationIds.length > 0) {
       const { data: unreadMessages, error: unreadError } = await supabase
@@ -174,14 +174,10 @@ export async function POST(request: NextRequest) {
         .eq("email", staff_email)
         .maybeSingle();
 
-      if (!staffAccount) {
-        return NextResponse.json(
-          { error: "Support account not found" },
-          { status: 400 }
-        );
-      }
-
-      if (account.role !== "support" && !["support", "admin"].includes(staffAccount.role)) {
+      if (
+        !staffAccount ||
+        (account.role !== "support" && !["support", "admin"].includes(staffAccount.role))
+      ) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
 

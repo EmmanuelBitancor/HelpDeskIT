@@ -2,23 +2,39 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 export async function PATCH(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { name, email } = body;
+   try {
+     const body = await request.json();
+     const { name, email } = body;
 
-    if (typeof name !== "string" || !name.trim()) {
-      return NextResponse.json(
-        { error: "Name is required" },
-        { status: 400 }
-      );
-    }
+     // At least one field must be provided for update
+     if (name === undefined && email === undefined) {
+       return NextResponse.json(
+         { error: "Name or email is required" },
+         { status: 400 }
+       );
+     }
 
-    if (email !== undefined && typeof email !== "string") {
-      return NextResponse.json(
-        { error: "Email must be a string" },
-        { status: 400 }
-      );
-    }
+     // Validate name if provided
+     if (name !== undefined && (typeof name !== "string" || !name.trim())) {
+       return NextResponse.json(
+         { error: "Name must be a non-empty string" },
+         { status: 400 }
+       );
+     }
+
+     // Validate email if provided
+     if (email !== undefined && typeof email !== "string") {
+       return NextResponse.json(
+         { error: "Email must be a string" },
+         { status: 400 }
+       );
+     }
+
+     if (email !== undefined && email !== "") {
+       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+         return NextResponse.json({ error: "Invalid email address" }, { status: 400 });
+       }
+     }
 
     const supabase = await createClient();
     const {
@@ -39,19 +55,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Account not found" }, { status: 404 });
     }
 
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      return NextResponse.json({ error: "Name is required" }, { status: 400 });
-    }
+    const trimmedName = name !== undefined ? name.trim() : null;
     const updates: Record<string, string> = {};
-    if (trimmedName !== account.name) {
+    if (trimmedName !== null && trimmedName !== account.name) {
       updates.name = trimmedName;
     }
 
     if (email && email !== account.email) {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        return NextResponse.json({ error: "Invalid email address" }, { status: 400 });
-      }
       const { error: authError } = await supabase.auth.updateUser({
         email,
       });

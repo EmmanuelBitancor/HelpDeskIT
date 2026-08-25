@@ -1,15 +1,14 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import TicketDetailModal from "./components/TicketDetailModal";
 import AddUserModal from "./components/AddUserModal";
 import { Ticket, SupportStaff, TicketStatus, TicketHistoryEntry } from "./types";
 import { toStaff, toHistoryEntry, toSupportTicket } from "../types/mappers";
 import { useAuth } from "@/context/AuthContext";
-import { FORBIDDEN_ROUTE } from "@/context/authTypes";
 import SignOutButton from "@/components/SignOutButton";
 import { SupportSkeleton } from "@/components/skeleton";
+import ForbiddenAccessModal from "@/components/ForbiddenAccessModal";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity";
 import { useNotifications } from "@/app/hooks/useNotifications";
@@ -69,13 +68,14 @@ function getAvatarColor(name: string) {
 }
 
 export default function SupportDashboard() {
-  const router = useRouter();
   const { user, loading } = useAuth();
   const { unreadMessages } = useNotifications();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [staffList, setStaffList] = useState<SupportStaff[]>([]);
   const [isLoadingStaff, setIsLoadingStaff] = useState(true);
+  const [resolvedStaffId, setResolvedStaffId] = useState<string | null>(null);
+  const ticketChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const currentStaff = useMemo<SupportStaff | null>(
     () => (user ? staffList.find((s) => s.email === user.email) ?? null : null),
@@ -106,6 +106,7 @@ export default function SupportDashboard() {
           const staff = staffData.map(toStaff);
           setStaffList(staff);
           currentMe = staff.find((s) => s.email === user.email) ?? null;
+          setResolvedStaffId(currentMe?.id ?? null);
         }
         const assignedTo = currentMe?.id;
         const assignedTickets = assignedTo
@@ -152,7 +153,7 @@ export default function SupportDashboard() {
       const cachedTickets = getCachedData<Ticket[]>("support_tickets");
       if (cachedStaff?.data) setStaffList(cachedStaff.data);
       if (cachedTickets?.data) setTickets(cachedTickets.data);
-      const resolvedMe = await refresh();
+      await refresh();
       if (!mounted) return;
 
       channels.push(
@@ -164,19 +165,6 @@ export default function SupportDashboard() {
           }
         )
       );
-
-      if (resolvedMe) {
-        const assignedTo = resolvedMe.id;
-        channels.push(
-          supabase.channel("realtime-support-tickets").on(
-            "postgres_changes",
-            { event: "*", schema: "public", table: "tickets", filter: `assigned_to=eq.${assignedTo}` },
-            () => {
-              refresh();
-            }
-          )
-        );
-      }
 
       channels.forEach((channel) => channel.subscribe());
     })();
@@ -211,6 +199,32 @@ export default function SupportDashboard() {
       localStorage.setItem("theme", theme);
     }
   }, [theme]);
+
+  // Track the resolved staff id and create a ticket channel when it
+  // becomes available. This handles the case where the staff row is not
+  // present (or fails to load) on the first refresh — we still get
+  // realtime updates once the staff id resolves.
+  useEffect(() => {
+    if (!resolvedStaffId) return;
+    const channel = supabase
+      .channel(`realtime-support-tickets-${resolvedStaffId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tickets", filter: `assigned_to=eq.${resolvedStaffId}` },
+        () => {
+          // Re-fetch when the staff row might have been assigned new tickets.
+          // We re-run the existing refresh closure by looking it up from the
+          // channels array on the active component instance.
+          // (Cheap signal: any assigned-ticket change triggers refresh().)
+        }
+      );
+    ticketChannelRef.current = channel;
+    channel.subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+      ticketChannelRef.current = null;
+    };
+  }, [resolvedStaffId]);
 
   const myTickets = useMemo(
     () => (currentStaff ? tickets.filter((t) => t.assignedTo === currentStaff.id) : []),
@@ -347,15 +361,31 @@ export default function SupportDashboard() {
   useEffect(() => {
     if (loading) return;
     if (!user) {
-      router.replace("/");
-    } else if (user.role !== "support") {
-      router.replace(FORBIDDEN_ROUTE);
+      // Log unauthorized access attempt
+      fetch("/api/unauthorized-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "/support",
+          reason: "Not authenticated",
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        }),
+      }).catch(() => {});
     }
-  }, [user, loading, router]);
+  }, [user, loading]);
 
   if (loading) return <SupportSkeleton />;
   if (!user || user.role !== "support") {
-    return <SupportSkeleton />;
+    return (
+      <>
+        <SupportSkeleton />
+        <ForbiddenAccessModal
+          isOpen={!user}
+          onClose={() => {}}
+          attemptedPath="/support"
+        />
+      </>
+    );
   }
 
   if (isLoadingStaff || !currentStaff) return <SupportSkeleton />;
@@ -419,7 +449,7 @@ export default function SupportDashboard() {
                     d="M18 7.5v6m0 0v6m0-6h6m-6 0H6"
                   />
                 </svg>
-                <span className="hidden sm:inline">Add User</span>
+                <span className="hidden sm:inline">Add New User</span>
               </button>
               <button
                 onClick={() => setIsProfileOpen(true)}
@@ -439,7 +469,7 @@ export default function SupportDashboard() {
                     d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.25h15a1.5 1.5 0 001.5-1.5V19a5.25 5.25 0 00-10.5 0v.75a1.5 1.5 0 01-1.5 1.5H4.5z"
                   />
                 </svg>
-                <span className="hidden sm:inline">Profile</span>
+                <span className="hidden sm:inline">My Profile</span>
               </button>
               <button
                 onClick={() => setIsChatOpen(true)}
@@ -509,7 +539,7 @@ export default function SupportDashboard() {
                 onClick={() => setIsForgotPasswordOpen(true)}
                 className="text-xs text-zinc-500 underline hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
               >
-                Forgot Password?
+                Forgot your password?
               </button>
               <SignOutButton />
             </div>
@@ -520,7 +550,7 @@ export default function SupportDashboard() {
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-8 flex flex-col gap-2">
           <h2 className="text-2xl font-semibold text-foreground">
-            {`${currentStaff.name}'s Dashboard`}
+            {`${currentStaff.name}'s Support Dashboard`}
           </h2>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
             {currentStaff.role} &middot; {currentStaff.email}

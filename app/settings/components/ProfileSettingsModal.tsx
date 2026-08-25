@@ -36,7 +36,12 @@ export default function ProfileSettingsModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  useFocusTrap(dialogRef, isOpen, onClose);
+  const handleClose = () => {
+    if (isSubmitting) return;
+    onClose();
+  };
+
+  useFocusTrap(dialogRef, isOpen, handleClose);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,16 +51,16 @@ export default function ProfileSettingsModal({
 
     try {
       if (newPassword && newPassword !== confirmPassword) {
-        throw new Error("Passwords do not match");
+        throw new Error("The passwords you entered do not match. Please try again.");
       }
       if (newPassword && !currentPassword) {
-        throw new Error("Enter your current password to change it");
+        throw new Error("Please enter your current password to change it.");
       }
       if (newPassword && newPassword.length < 8) {
-        throw new Error("Password must be at least 8 characters");
+        throw new Error("Your new password must be at least 8 characters long.");
       }
 
-      let profileMessage: string | null = null;
+      let passwordUpdated = false;
 
       if (newPassword) {
         const res = await fetch("/api/reauthenticate", {
@@ -65,7 +70,7 @@ export default function ProfileSettingsModal({
         });
         const data = await res.json();
         if (!res.ok) {
-          throw new Error(data.error || "Current password is incorrect");
+          throw new Error(data.error || "The current password you entered is incorrect. Please try again.");
         }
         const { createClient } = await import("@/lib/supabase/client");
         const supabase = createClient();
@@ -73,7 +78,7 @@ export default function ProfileSettingsModal({
           password: newPassword,
         });
         if (authError) throw new Error(authError.message);
-        profileMessage = "Password updated successfully";
+        passwordUpdated = true;
         setCurrentPassword("");
         setNewPassword("");
         setConfirmPassword("");
@@ -90,17 +95,19 @@ export default function ProfileSettingsModal({
           body: JSON.stringify(updatePayload),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Failed to update profile");
-        const profileUpdateMsg = "Profile updated successfully";
+        if (!res.ok) throw new Error(data.error || "We couldn't update your profile. Please try again.");
+        const profileUpdateMsg = "Your profile has been updated successfully!";
         setSuccess((prev) => (prev ? `${prev}\n${profileUpdateMsg}` : profileUpdateMsg));
         onUpdated?.();
       }
 
-      if (profileMessage) {
-        setSuccess((prev) => (prev ? `${prev}\n${profileMessage}` : profileMessage));
+      if (passwordUpdated) {
+        setSuccess((prev) =>
+          prev ? `${prev}\nYour password has been updated successfully!` : "Your password has been updated successfully!"
+        );
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -124,9 +131,10 @@ export default function ProfileSettingsModal({
           </h3>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
+            disabled={isSubmitting}
             aria-label="Close dialog"
-            className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+            className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -165,7 +173,7 @@ export default function ProfileSettingsModal({
 
           <div className="border-t border-zinc-200 pt-4 dark:border-zinc-800">
             <p className="mb-3 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-              Change Password
+              Change Your Password
             </p>
             <div className="space-y-3">
               <div>
@@ -178,7 +186,7 @@ export default function ProfileSettingsModal({
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                  placeholder="Required to change password"
+                  placeholder="Enter your current password to verify your identity"
                 />
               </div>
               <div>
@@ -191,7 +199,7 @@ export default function ProfileSettingsModal({
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                  placeholder="Min. 8 characters"
+                  placeholder="At least 8 characters"
                 />
               </div>
               <div>
@@ -204,7 +212,7 @@ export default function ProfileSettingsModal({
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                  placeholder="Repeat new password"
+                  placeholder="Re-enter your new password"
                 />
               </div>
             </div>
@@ -216,8 +224,9 @@ export default function ProfileSettingsModal({
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
-              onClick={onClose}
-              className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              onClick={handleClose}
+              disabled={isSubmitting}
+              className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
               Cancel
             </button>
@@ -226,7 +235,7 @@ export default function ProfileSettingsModal({
               disabled={isSubmitting}
               className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2 disabled:opacity-50"
             >
-              {isSubmitting ? "Saving..." : "Save Changes"}
+              {isSubmitting ? "Saving changes..." : "Save Changes"}
             </button>
           </div>
         </form>

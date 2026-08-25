@@ -153,7 +153,7 @@ export default function StaffModal({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search staff by name, role, or email..."
+              placeholder="Search staff by name, role, or email address..."
               className="w-full rounded-lg border border-zinc-300 py-2.5 pl-9 pr-4 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
             />
           </div>
@@ -176,10 +176,10 @@ export default function StaffModal({
                 />
               </svg>
               <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                No staff found
+                No staff members match your search
               </p>
               <p className="text-xs text-zinc-400 dark:text-zinc-500">
-                Try adjusting your search
+                Try adjusting your search terms or add a new staff member
               </p>
             </div>
           ) : (
@@ -268,7 +268,7 @@ export default function StaffModal({
                             onClick={() => onEditStaff(staff)}
                             className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                           >
-                            Edit
+                            Edit Details
                           </button>
                           <button
                             onClick={() => onToggleStaffStatus(staff.id)}
@@ -284,7 +284,7 @@ export default function StaffModal({
                             onClick={() => {
                               if (
                                 confirm(
-                                  `Are you sure you want to remove ${staff.name}?`
+                                  `Are you sure you want to remove ${staff.name}? This will unassign them from all tickets.`
                                 )
                               ) {
                                 onDeleteStaff(staff.id);
@@ -322,7 +322,7 @@ export default function StaffModal({
                 d="M18 7.5v6m0 0v6m0-6h6m-6 0H6"
               />
             </svg>
-            Add New Staff
+            Add New Staff Member
           </button>
         </div>
       </div>

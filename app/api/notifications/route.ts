@@ -22,10 +22,13 @@ export async function GET() {
       return NextResponse.json({ error: "Account not found" }, { status: 404 });
     }
 
-    const unreadMessages = await countUnreadMessages(supabase, account.id);
-    const pendingUsers = await countPendingUsers(supabase, account);
-    const systemErrors = await countSystemErrors(supabase, account);
-    const recentActivities = await countRecentActivities(supabase, account.id);
+    const [unreadMessages, pendingUsers, systemErrors, recentActivities] =
+      await Promise.all([
+        countUnreadMessages(supabase, account.id),
+        countPendingUsers(supabase, account),
+        countSystemErrors(supabase, account),
+        countRecentActivities(supabase, account.id),
+      ]);
 
     return NextResponse.json({
       unreadMessages,

@@ -349,7 +349,10 @@ export default function ChatPanel({
               {title}
             </h3>
             {totalUnread > 0 && (
-              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white">
+              <span
+                aria-label={`${totalUnread} unread messages`}
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white"
+              >
                 {totalUnread > 9 ? "9+" : totalUnread}
               </span>
             )}
@@ -422,7 +425,10 @@ export default function ChatPanel({
                           {getConversationTitle(conversation)}
                         </span>
                         {unread > 0 && (
-                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white">
+                          <span
+                            aria-label={`${unread} unread messages`}
+                            className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white"
+                          >
                             {unread > 9 ? "9+" : unread}
                           </span>
                         )}
