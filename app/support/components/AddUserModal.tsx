@@ -38,9 +38,9 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
 
       const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to add user");
-      }
+        if (!response.ok) {
+          throw new Error(data.error || "We couldn't add this user. Please try again.");
+        }
 
       onAdded(data.user);
       setName("");
@@ -48,7 +48,7 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
       setPassword("");
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -93,7 +93,7 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Enter full name"
+              placeholder="Enter the user's full name"
             />
           </div>
           <div>
@@ -107,7 +107,7 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Enter email address"
+              placeholder="Enter the user's email address"
             />
           </div>
           <div>
@@ -122,7 +122,7 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Min. 8 characters"
+              placeholder="At least 8 characters"
             />
           </div>
           <div>
@@ -137,7 +137,7 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
             >
               <option value="User">User</option>
             </select>
-            <p className="mt-1 text-xs text-zinc-400">Only users can be added from the support dashboard.</p>
+            <p className="mt-1 text-xs text-zinc-400">Only standard users can be added from the support dashboard.</p>
           </div>
           {error && (
             <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>
@@ -155,7 +155,7 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
               disabled={isSubmitting}
               className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2 disabled:opacity-50"
             >
-              {isSubmitting ? "Adding..." : "Add User"}
+              {isSubmitting ? "Adding user..." : "Add User"}
             </button>
           </div>
         </form>

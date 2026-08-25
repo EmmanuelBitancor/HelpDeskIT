@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { sendEmail, isEmailConfigured } from "@/lib/email";
+import { sendEmail } from "@/lib/email";
+import { welcomeEmail } from "@/lib/email-templates";
 
 export async function GET() {
   try {
@@ -221,10 +222,10 @@ export async function POST(request: NextRequest) {
     const authData = await authRes.json();
 
     if (!authRes.ok) {
-      console.error("Supabase auth error:", authData);
+console.error("Supabase auth error:", authData);
       return NextResponse.json(
-        { error: authData.msg || "Failed to create user" },
-        { status: 400 }
+        { error: "Failed to fetch users from authentication" },
+        { status: 500 }
       );
     }
 
@@ -294,29 +295,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (isEmailConfigured()) {
-      try {
-        await sendEmail({
-          to: email,
-          subject: "Welcome to HelpDeskIT",
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
-              <h1 style="color: #2563eb;">Welcome to HelpDeskIT</h1>
-              <p>Hello ${name},</p>
-              <p>Your account has been created successfully. You can now log in with the following credentials:</p>
-              <div style="background: #f3f4f6; padding: 16px; border-radius: 8px; margin: 16px 0;">
-                <p><strong>Email:</strong> ${email}</p>
-                <p><strong>Password:</strong> ${password}</p>
-              </div>
-              <p>Please change your password after logging in for the first time.</p>
-              <p>If you have any questions, contact your IT support team.</p>
-            </div>
-          `,
-        });
-      } catch (emailError) {
-        console.error("Failed to send welcome email:", emailError);
-      }
-    }
+    const templates = welcomeEmail({ name, email });
+    sendEmail({
+      to: email,
+      subject: templates.subject,
+      html: templates.html,
+      text: templates.text,
+    }).catch((err) => console.error("User welcome email failed:", err));
 
     return NextResponse.json({
       success: true,

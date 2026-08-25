@@ -133,7 +133,7 @@ export default function TicketDetailModal({
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
           <h3 id="ticketDetailTitle" className="text-lg font-semibold text-foreground">
-            {ticket.id}
+            Ticket {ticket.id}
           </h3>
           <button
             onClick={closeModal}
@@ -177,7 +177,7 @@ export default function TicketDetailModal({
         <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2 md:gap-6">
           <div>
             <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              Subject
+              Ticket Subject
             </p>
             <p className="mt-1 text-sm font-medium text-foreground">
               {ticket.subject}
@@ -235,7 +235,7 @@ export default function TicketDetailModal({
         {ticket.history && ticket.history.length > 0 && (
           <div className="border-t border-zinc-200 px-6 py-4 dark:border-zinc-800">
             <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              Activity
+              Ticket History
             </p>
             <ul className="mt-2 space-y-2">
               {ticket.history.map((entry) => {
@@ -253,8 +253,8 @@ export default function TicketDetailModal({
                       {author}
                     </span>
                     <span className="text-zinc-600 dark:text-zinc-400">
-                      set status to
-                    </span>
+                          changed status to
+                        </span>
                     <span className="font-medium text-foreground">
                       {entry.status.replace("_", " ")}
                     </span>
@@ -314,7 +314,7 @@ export default function TicketDetailModal({
                 value={draftNotes}
                 onChange={(e) => onDraftNotesChange(e.target.value)}
                 className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800"
-                placeholder="Describe the resolution or next steps..."
+                 placeholder="Describe the resolution or any follow-up actions..."
               />
             </div>
           )}

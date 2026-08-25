@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { ALLOWED_ACTIONS } from "@/lib/activity";
+import { ALLOWED_ACTIONS, type ActivityAction } from "@/lib/activity";
 
 const MAX_FIELD_LENGTH = 500;
 
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
 
     const normalizedAction = typeof action === "string" ? action.trim() : "";
 
-    if (!normalizedAction || !ALLOWED_ACTIONS.has(normalizedAction)) {
+    if (!normalizedAction || !ALLOWED_ACTIONS.has(normalizedAction as ActivityAction)) {
       return NextResponse.json(
         { error: "Invalid action" },
         { status: 400 }
@@ -188,8 +188,11 @@ export async function GET(request: NextRequest) {
       .order("created_at", { ascending: false })
       .limit(limit);
 
-    if (action && ALLOWED_ACTIONS.has(action)) {
-      query = query.eq("action", action);
+    if (action) {
+      if (!ALLOWED_ACTIONS.has(action as ActivityAction)) {
+        return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+      }
+      query = query.eq("action", action as ActivityAction);
     }
     if (actorId) {
       query = query.eq("actor_id", actorId);

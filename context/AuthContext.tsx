@@ -84,6 +84,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loadId++;
         setUser(null);
         setSessionId(null);
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("sessionId");
+        }
         setLoading(false);
       } else if (event === "SIGNED_IN") {
         loadProfile();
@@ -153,22 +156,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     const currentSessionId = sessionId;
     const currentUser = user;
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      throw error;
-    }
-    if (currentUser && currentSessionId) {
+    if (currentSessionId) {
       try {
-        await supabase
-          .from("user_sessions")
-          .delete()
-          .eq("id", currentSessionId);
+        await fetch("/api/sessions", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: currentSessionId }),
+        });
       } catch {
         // best-effort cleanup
       }
+    }
+    if (currentUser) {
       await logActivity({ action: "logout", details: `Signed out ${currentUser.email}` });
-    } else if (currentUser) {
-      await logActivity({ action: "logout", details: `Signed out ${currentUser.email}` });
+    }
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      throw error;
     }
     if (typeof window !== "undefined") {
       localStorage.removeItem("sessionId");

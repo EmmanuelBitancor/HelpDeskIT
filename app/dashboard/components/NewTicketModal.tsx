@@ -89,10 +89,10 @@ export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketM
         setForm({ fullname: "", department: "", subject: "", category: "General", priority: "medium", description: "" });
         onClose();
       } else {
-        setError(result.error ?? "Failed to create ticket");
+        setError(result.error ?? "We couldn't create your ticket. Please verify all fields and try again.");
       }
     } catch {
-      setError("Failed to create ticket");
+      setError("We couldn't create your ticket. Please verify all fields and try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -111,7 +111,7 @@ export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketM
         className="w-full max-w-lg rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
-          <h3 id="newTicketTitle" className="text-lg font-semibold text-foreground">New Ticket</h3>
+          <h3 id="newTicketTitle" className="text-lg font-semibold text-foreground">Submit a New Ticket</h3>
           <button
             onClick={onClose}
             className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
@@ -124,7 +124,7 @@ export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketM
         <form onSubmit={handleSubmit} className="space-y-4 p-6">
             <div>
             <label htmlFor="fullname" className="block text-sm font-medium text-foreground">
-              Fullname
+              Full Name
             </label>
             <input
               id="fullname"
@@ -133,7 +133,7 @@ export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketM
               value={form.fullname}
               onChange={(e) => setForm({ ...form, fullname: e.target.value })}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Enter Fullname"
+              placeholder="Enter your full name"
             />
           </div>
           <div>
@@ -147,12 +147,12 @@ export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketM
               value={form.department}
               onChange={(e) => setForm({ ...form, department: e.target.value })}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Enter Department/Office"
+              placeholder="Enter your department or office name"
             />
           </div>
           <div>
             <label htmlFor="subject" className="block text-sm font-medium text-foreground">
-              Subject
+              Ticket Subject
             </label>
             <input
               id="subject"
@@ -161,13 +161,13 @@ export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketM
               value={form.subject}
               onChange={(e) => setForm({ ...form, subject: e.target.value })}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Brief description of the issue"
+              placeholder="Brief summary of your issue"
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="category" className="block text-sm font-medium text-foreground">
-                Category
+                Issue Category
               </label>
               <select
                 id="category"
@@ -185,7 +185,7 @@ export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketM
             </div>
             <div>
               <label htmlFor="priority" className="block text-sm font-medium text-foreground">
-                Priority
+                Priority Level
               </label>
               <select
                 id="priority"
@@ -203,7 +203,7 @@ export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketM
           
           <div>
             <label htmlFor="description" className="block text-sm font-medium text-foreground">
-              Description
+              Detailed Description
             </label>
             <textarea
               id="description"
@@ -212,7 +212,7 @@ export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketM
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Provide details about your issue..."
+              placeholder="Please describe your issue in detail. Include any error messages, steps to reproduce, and relevant information."
             />
           </div>
           {error && (
@@ -231,7 +231,7 @@ export default function NewTicketModal({ isOpen, onClose, onSubmit }: NewTicketM
               disabled={isSubmitting}
               className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2 disabled:opacity-50"
             >
-              {isSubmitting ? "Submitting..." : "Submit Ticket"}
+              {isSubmitting ? "Submitting your ticket..." : "Submit Ticket"}
             </button>
           </div>
         </form>

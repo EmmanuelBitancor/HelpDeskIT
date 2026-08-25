@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { sendEmail } from "@/lib/email";
+import { passwordResetEmail, passwordResetNotificationEmail } from "@/lib/email-templates";
 import { checkRateLimit, getClientIdentifier } from "@/app/api/_lib/ratelimit";
 
 export async function POST(request: NextRequest) {
@@ -47,17 +49,60 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-      redirectTo: `${origin}/auth/reset-password`,
+    const { data: targetAccount } = await supabase
+      .from("accounts")
+      .select("id, name, email, user_id")
+      .eq("email", normalizedEmail)
+      .maybeSingle();
+
+    const genericResponse = NextResponse.json({
+      message: "If an account exists, a reset email will be sent.",
     });
 
-    if (error) {
-      console.error("Password reset provider error:", error);
+    if (!targetAccount) {
+      return genericResponse;
     }
 
-    return NextResponse.json(
-      { message: "If an account exists, a reset email will be sent." }
-    );
+    const token = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    const { error: insertError } = await supabase.from("password_resets").insert({
+      id: crypto.randomUUID(),
+      email: normalizedEmail,
+      token,
+      expires_at: expiresAt,
+      user_id: targetAccount.user_id,
+    });
+
+    if (insertError) {
+      console.error("Failed to create password reset token:", insertError);
+      return NextResponse.json(
+        { error: "Unable to process the request. Please try again later." },
+        { status: 500 }
+      );
+    }
+
+    const templates = passwordResetEmail({
+      email: normalizedEmail,
+      token,
+      origin,
+    });
+
+    await sendEmail({
+      to: normalizedEmail,
+      subject: templates.subject,
+      html: templates.html,
+      text: templates.text,
+    });
+
+    await sendEmail({
+      to: normalizedEmail,
+      subject: passwordResetNotificationEmail({ name: targetAccount.name, email: normalizedEmail }).subject,
+      html: passwordResetNotificationEmail({ name: targetAccount.name, email: normalizedEmail }).html,
+      text: passwordResetNotificationEmail({ name: targetAccount.name, email: normalizedEmail }).text,
+    });
+
+    return genericResponse;
   } catch (error) {
     console.error("Forgot password error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

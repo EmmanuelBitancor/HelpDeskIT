@@ -15,6 +15,7 @@ export default function Home() {
   const [name, setName] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [confirmShowPassword, setConfirmShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
@@ -38,7 +39,7 @@ export default function Home() {
       if (result.ok && result.role) {
         router.replace(roleRoutes[result.role]);
       } else {
-        setError(result.error ?? "Account created but login failed");
+        setError(result.error ?? "Your account was created, but we couldn't sign you in automatically. Please sign in manually.");
       }
     } catch {
       setError("An unexpected error occurred");
@@ -53,7 +54,7 @@ export default function Home() {
     setError("");
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match");
+      setError("The passwords you entered do not match. Please try again.");
       setLoading(false);
       return;
     }
@@ -68,7 +69,7 @@ export default function Home() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setError(data.error || "Signup failed");
+        setError(data.error || "We couldn't create your account. Please try again.");
         setLoading(false);
         return;
       }
@@ -77,7 +78,7 @@ export default function Home() {
       setSignupPassword(password);
       setIsOtpModalOpen(true);
     } catch {
-      setError("An unexpected error occurred");
+      setError("An unexpected error occurred. Please refresh the page and try again.");
     }
 
     setLoading(false);
@@ -91,7 +92,7 @@ export default function Home() {
     if (result.ok && result.role) {
       router.replace(roleRoutes[result.role]);
     } else {
-      setError(result.error ?? "Invalid credentials");
+      setError(result.error ?? "Invalid email or password. Please try again.");
     }
     setLoading(false);
   };
@@ -104,7 +105,7 @@ export default function Home() {
             Welcome to HelpDeskIT
           </h1>
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-            {isSignUp ? "Create an account to get started" : "Sign in to your account to continue"}
+            {isSignUp ? "Create your account and get started with IT support" : "Sign in to your HelpDeskIT account to continue"}
           </p>
         </div>
 
@@ -151,7 +152,7 @@ export default function Home() {
                 htmlFor="name"
                 className="block text-sm font-medium text-foreground"
               >
-                Name
+                Full Name
               </label>
               <input
                 id="name"
@@ -161,7 +162,7 @@ export default function Home() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                placeholder="Your name"
+                placeholder="Enter your full name"
               />
             </div>
           )}
@@ -171,7 +172,7 @@ export default function Home() {
               htmlFor="email"
               className="block text-sm font-medium text-foreground"
             >
-              Email
+              Email Address
             </label>
             <input
               id="email"
@@ -201,13 +202,13 @@ export default function Home() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="block w-full rounded-lg border border-zinc-300 bg-white pl-3 pr-10 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                placeholder="Password"
-              />
+                placeholder="Enter your password"
+/>
               <button
                 type="button"
                 aria-label={showPassword ? "Hide password" : "Show password"}
                 onClick={() => setShowPassword((v) => !v)}
-                className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-zinc-500 hover:text-foreground dark:text-zinc-400 dark:hover:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-1"
+                className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-zinc-500 hover:text-foreground dark:text-zinc-400 dark:hover:text-zinc-200 focus:outline-none"
               >
                 {showPassword ? (
                   <svg
@@ -264,14 +265,33 @@ export default function Home() {
               <div className="relative mt-1">
                 <input
                   id="confirmPassword"
-                  type={showPassword ? "text" : "password"}
+                  type={confirmShowPassword ? "text" : "password"}
                   autoComplete="new-password"
                   required
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="block w-full rounded-lg border border-zinc-300 bg-white pl-3 pr-10 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                  placeholder="Confirm password"
+                  placeholder="Re-enter your password"
                 />
+                <button
+                  type="button"
+                  aria-label={confirmShowPassword ? "Hide password" : "Show password"}
+                  onClick={() => setConfirmShowPassword((v) => !v)}
+                  className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-zinc-500 hover:text-foreground dark:text-zinc-400 dark:hover:text-zinc-200 focus:outline-none"
+                >
+                  {confirmShowPassword ? (
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
+                    </svg>
+                  ) : (
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  )}
+                </button>
               </div>
             </div>
           )}
@@ -287,7 +307,7 @@ export default function Home() {
             disabled={loading}
             className="flex w-full justify-center rounded-lg bg-foreground px-4 py-2.5 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2 disabled:opacity-60"
           >
-            {loading ? (isSignUp ? "Creating account..." : "Signing in...") : isSignUp ? "Create Account" : "Sign In"}
+            {loading ? (isSignUp ? "Creating your account..." : "Signing you in...") : isSignUp ? "Create Account" : "Sign In"}
           </button>
 
           {!isSignUp && (
@@ -297,7 +317,7 @@ export default function Home() {
                 onClick={() => setIsForgotPasswordOpen(true)}
                 className="text-sm font-medium text-foreground underline hover:no-underline"
               >
-                Forgot password?
+                Forgot your password?
               </button>
             </div>
           )}

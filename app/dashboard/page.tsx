@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import NewTicketModal from "./components/NewTicketModal";
 import KnowledgeBase from "./components/KnowledgeBase";
 import SupportChatModal from "./components/SupportChatModal";
 import { useAuth } from "@/context/AuthContext";
-import { FORBIDDEN_ROUTE } from "@/context/authTypes";
 import SignOutButton from "@/components/SignOutButton";
 import { DashboardSkeleton } from "@/components/skeleton";
+import ForbiddenAccessModal from "@/components/ForbiddenAccessModal";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity";
 import { getCachedData, setCachedData } from "@/lib/cache";
@@ -69,7 +68,6 @@ export default function DashboardPage() {
       : "light";
   });
 
-  const router = useRouter();
   const { user, loading } = useAuth();
 
   useEffect(() => {
@@ -86,14 +84,16 @@ export default function DashboardPage() {
     const cachedTickets = getCachedData<Ticket[]>("dashboard_tickets");
     const cachedStaff = getCachedData<SupportStaff[]>("dashboard_staff");
     if (cachedTickets?.data) {
+      const staffMap = new Map<string, SupportStaff>(
+        (cachedStaff?.data ?? []).map((s) => [String(s.id), s])
+      );
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setTickets(cachedTickets.data);
-    }
-    if (cachedStaff?.data) {
-      const staffMap = new Map<string, SupportStaff>();
-      for (const s of cachedStaff.data) {
-        staffMap.set(String(s.id), s);
-      }
+      setTickets(
+        cachedTickets.data.map((t) => {
+          const staff = t.assignedTo ? staffMap.get(t.assignedTo) : undefined;
+          return staff ? { ...t, assignedStaff: staff } : t;
+        })
+      );
     }
 
     (async () => {
@@ -108,7 +108,7 @@ export default function DashboardPage() {
       if (active) {
         if (ticketsError || staffError) {
           console.error("Failed to load dashboard data:", ticketsError ?? staffError);
-          setError(ticketsError?.message ?? staffError?.message ?? "Failed to load data");
+          setError(ticketsError?.message ?? staffError?.message ?? "We couldn't load your dashboard data. Please check your connection and try again.");
           return;
         }
         const staffMap = new Map<string, SupportStaff>();
@@ -167,11 +167,11 @@ export default function DashboardPage() {
         supabase.from("support_staff").select("*"),
       ]);
       if (!mounted) return;
-      if (ticketsError || staffError) {
-        console.error("Failed to load dashboard data:", ticketsError ?? staffError);
-        setError(ticketsError?.message ?? staffError?.message ?? "Failed to load data");
-        return;
-      }
+if (ticketsError || staffError) {
+          console.error("Failed to load dashboard data:", ticketsError ?? staffError);
+          setError(ticketsError?.message ?? staffError?.message ?? "We couldn't load your dashboard data. Please check your connection and try again.");
+          return;
+        }
       const staffMap = new Map<string, SupportStaff>();
       if (staffData) {
         for (const s of staffData) {
@@ -284,7 +284,7 @@ export default function DashboardPage() {
       .single();
 
     if (error) {
-      return { success: false, error: error.message ?? "Failed to create ticket" };
+      return { success: false, error: error.message ?? "We couldn't create your ticket. Please try again in a moment." };
     }
 
     setTickets((prev) => [toTicket(data), ...prev]);
@@ -308,16 +308,32 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (loading) return;
-    if (!user) {
-      router.replace("/");
-    } else if (user.role !== "user") {
-      router.replace(FORBIDDEN_ROUTE);
+    if (!user || user.role !== "user") {
+      // Log unauthorized access attempt
+      fetch("/api/unauthorized-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "/dashboard",
+          reason: user ? `Insufficient role: ${user.role}` : "Not authenticated",
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        }),
+      }).catch(() => {});
     }
-  }, [user, loading, router]);
+  }, [user, loading]);
 
   if (loading) return <DashboardSkeleton />;
   if (!user || user.role !== "user") {
-    return <DashboardSkeleton />;
+    return (
+      <>
+        <DashboardSkeleton />
+        <ForbiddenAccessModal
+          isOpen
+          onClose={() => {}}
+          attemptedPath="/dashboard"
+        />
+      </>
+    );
   }
 
   return (
@@ -398,7 +414,7 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={() => setError(null)}
-              aria-label="Dismiss error"
+              aria-label="Dismiss error message"
               className="ml-2 text-red-500 hover:text-red-700 dark:hover:text-red-300"
             >
               ✕
@@ -411,7 +427,7 @@ export default function DashboardPage() {
               Ticket Dashboard
             </h2>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              Manage and track your support tickets
+              Manage and track all your IT support requests in one place.
             </p>
           </div>
             <div className="flex items-center gap-3">
@@ -432,7 +448,7 @@ export default function DashboardPage() {
                     d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A9 9 0 006 18c1.052 0 2.062-.18 3-.512m0-13.042A8.967 8.967 0 0118 3.75c1.052 0 2.062.18 3 .512v14.25A9 9 0 0118 18c-1.052 0-2.062-.18-3-.512"
                   />
                 </svg>
-                Knowledge Base
+                Browse Knowledge Base
               </button>
               <button
                 onClick={() => setIsModalOpen(true)}
@@ -451,7 +467,7 @@ export default function DashboardPage() {
                     d="M12 4.5v15m7.5-7.5h-15"
                   />
                 </svg>
-                New Ticket
+                Submit New Ticket
               </button>
             </div>
         </div>
@@ -544,7 +560,7 @@ export default function DashboardPage() {
                   />
                 </svg>
                 <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                  No tickets found
+                  You don&apos;t have any tickets yet. Submit a new ticket to get started!
                 </p>
               </div>
             ) : (
@@ -622,7 +638,7 @@ export default function DashboardPage() {
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-0.5 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-                              Unassigned
+                               Awaiting Assignment
                             </span>
                           )}
                         </div>
@@ -652,7 +668,7 @@ export default function DashboardPage() {
                               d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 013 21V12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
                             />
                           </svg>
-                          Message
+                          Send Message
                         </button>
                       )}
                     </div>

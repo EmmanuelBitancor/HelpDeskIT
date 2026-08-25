@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
 
     const { data: account } = await supabase
       .from("accounts")
-      .select("role")
+      .select("id, role")
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -29,21 +29,15 @@ export async function GET(request: NextRequest) {
       .order("last_active", { ascending: false });
 
     if (!isSuperAdmin) {
-      const { data: ownAccount } = await supabase
-        .from("accounts")
-        .select("id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (!ownAccount?.id) {
+      if (!account?.id) {
         return NextResponse.json({ sessions: [] });
       }
 
-      if (userId && userId !== ownAccount.id) {
+      if (userId && userId !== account.id) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
 
-      query = query.eq("user_id", ownAccount.id);
+      query = query.eq("user_id", account.id);
     }
 
     if (userId && isSuperAdmin) {

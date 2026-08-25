@@ -1,13 +1,12 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import StaffModal from "./components/StaffModal";
 import { useNotifications } from "@/app/hooks/useNotifications";
 import { useAuth } from "@/context/AuthContext";
-import { FORBIDDEN_ROUTE } from "@/context/authTypes";
 import SignOutButton from "@/components/SignOutButton";
 import { AdminSkeleton } from "@/components/skeleton";
+import ForbiddenAccessModal from "@/components/ForbiddenAccessModal";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity";
 import { getCachedData, setCachedData } from "@/lib/cache";
@@ -101,6 +100,7 @@ export default function AdminDashboard() {
     email: "",
     role: "",
     customRole: "",
+    password: "",
   });
   const [staffFormError, setStaffFormError] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -174,7 +174,7 @@ export default function AdminDashboard() {
       if (e.key === "Escape") {
         setIsStaffFormOpen(false);
         setEditingStaff(null);
-        setStaffForm({ name: "", email: "", role: "", customRole: "" });
+        setStaffForm({ name: "", email: "", role: "", customRole: "", password: "" });
         return;
       }
       if (e.key !== "Tab") return;
@@ -207,7 +207,6 @@ export default function AdminDashboard() {
     };
   }, [isStaffFormOpen, getFocusableElements]);
 
-  const router = useRouter();
   const { user, loading } = useAuth();
 
   useEffect(() => {
@@ -230,7 +229,7 @@ export default function AdminDashboard() {
         if (!mounted) return;
 
         if (ticketsRes.error || staffRes.error) {
-          const message = ticketsRes.error?.message || staffRes.error?.message || "Failed to load data";
+          const message = ticketsRes.error?.message || staffRes.error?.message || "Unable to load dashboard data. Please check your connection and try again.";
           console.error("Admin data load error:", ticketsRes.error || staffRes.error);
           setPageError(message);
           setIsLoading(false);
@@ -247,7 +246,7 @@ export default function AdminDashboard() {
       } catch (err) {
         console.error("Admin data load rejected:", err);
         if (mounted) {
-          setPageError(err instanceof Error ? err.message : "Failed to load data");
+          setPageError(err instanceof Error ? err.message : "Unable to load dashboard data. Please check your connection and try again.");
           setIsLoading(false);
         }
       } finally {
@@ -369,7 +368,7 @@ export default function AdminDashboard() {
 
   const openAddStaff = () => {
     setEditingStaff(null);
-    setStaffForm({ name: "", email: "", role: "", customRole: "" });
+    setStaffForm({ name: "", email: "", role: "", customRole: "", password: "" });
     setIsStaffFormOpen(true);
     setIsStaffModalOpen(false);
   };
@@ -382,53 +381,55 @@ export default function AdminDashboard() {
       email: staff.email,
       role: isCustomRole ? "__other__" : staff.role,
       customRole: isCustomRole ? staff.role : "",
+      password: "",
     });
     setIsStaffFormOpen(true);
     setIsStaffModalOpen(false);
   };
 
-  const handleSaveStaff = async () => {
+    const handleSaveStaff = async () => {
     setStaffFormError(null);
     const isOtherRole = staffForm.role === "__other__";
+    const isEditing = !!editingStaff;
+
     if (
       !staffForm.name.trim() ||
       !staffForm.email.trim() ||
       (!isOtherRole && !staffForm.role.trim()) ||
       (isOtherRole && !staffForm.customRole.trim())
     ) {
-      setStaffFormError("Name, email, and role are required.");
+      setStaffFormError("Please fill in the name, email, and role fields.");
       return;
     }
 
+    // Server enforces password requirements; generatePassword flag controls the behavior.
     const name = staffForm.name.trim();
     const email = staffForm.email.trim();
     const roleTitle = isOtherRole
       ? staffForm.customRole.trim()
       : staffForm.role.trim();
 
-      if (editingStaff) {
-        const payload = { name, email, role: roleTitle };
-        const { error: staffError } = await supabase
-          .from("support_staff")
-          .update(payload)
-          .eq("id", editingStaff.id);
-        if (staffError) {
-          setStaffFormError(staffError.message);
-          return;
-        }
+    if (isEditing) {
+      try {
+        const res = await fetch(`/api/staff/${editingStaff.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            email,
+            role: roleTitle,
+          }),
+        });
 
-        const { error: accountError } = await supabase
-          .from("accounts")
-          .update({ email, name, avatar: getInitials(name) })
-          .eq("email", editingStaff.email);
+        const data = await res.json();
 
-        if (accountError) {
-          setStaffFormError(accountError.message);
+        if (!res.ok || !data.success) {
+          setStaffFormError(data.error || "We couldn't update this staff member. Please try again.");
           return;
         }
 
         setStaffList((prev) =>
-          prev.map((s) => (s.id === editingStaff.id ? { ...s, ...payload } : s)),
+          prev.map((s) => (s.id === editingStaff.id ? { ...s, ...data.staff } : s)),
         );
         await logActivity({
           action: "staff_updated",
@@ -436,52 +437,46 @@ export default function AdminDashboard() {
           target_id: editingStaff.id,
           details: `Updated staff: ${name} (${email})`,
         });
-      } else {
-        const id = `staff-${Date.now()}`;
-        const newStaff: SupportStaff = {
-          id,
-          name,
-          email,
-          role: roleTitle,
-          avatar: getInitials(name),
-          active: true,
-        };
-        const { error } = await supabase.from("support_staff").insert({
-          id,
-          name: newStaff.name,
-          email: newStaff.email,
-          role: newStaff.role,
-          avatar: newStaff.avatar,
-          active: true,
+      } catch {
+        setStaffFormError("Something went wrong. Please try again.");
+        return;
+      }
+    } else {
+      try {
+        const res = await fetch("/api/staff", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            email,
+            password: staffForm.password,
+            generatePassword: !staffForm.password.trim(),
+            role: roleTitle,
+          }),
         });
-        if (error) {
-          setStaffFormError(error.message);
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          setStaffFormError(data.error || "We couldn't create this staff member. Please try again.");
           return;
         }
 
-        const { error: accountError } = await supabase
-          .from("accounts")
-          .upsert(
-            { email, name, role: "support", avatar: getInitials(name) },
-            { onConflict: "email", ignoreDuplicates: true }
-          );
-
-        if (accountError) {
-          setStaffFormError(accountError.message);
-          return;
-        }
-
-        setStaffList((prev) => [...prev, newStaff]);
+        setStaffList((prev) => [...prev, data.staff]);
         await logActivity({
           action: "staff_created",
           target_type: "staff",
-          target_id: id,
+          target_id: data.staff.id,
           details: `Created staff: ${name} (${email})`,
         });
+      } catch {
+        setStaffFormError("Something went wrong. Please try again.");
+        return;
       }
+    }
 
     setIsStaffFormOpen(false);
-    setStaffForm({ name: "", email: "", role: "", customRole: "" });
+    setStaffForm({ name: "", email: "", role: "", customRole: "", password: "" });
     setEditingStaff(null);
   };
 
@@ -569,16 +564,31 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (loading) return;
-    if (!user) {
-      router.replace("/");
-    } else if (user.role !== "admin") {
-      router.replace(FORBIDDEN_ROUTE);
+    if (!user || user.role !== "admin") {
+      fetch("/api/unauthorized-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "/admin",
+          reason: user ? `Insufficient role: ${user.role}` : "Not authenticated",
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        }),
+      }).catch(() => {});
     }
-  }, [user, loading, router]);
+  }, [user, loading]);
 
   if (loading) return <AdminSkeleton />;
   if (!user || user.role !== "admin") {
-    return <AdminSkeleton />;
+    return (
+      <>
+        <AdminSkeleton />
+        <ForbiddenAccessModal
+          isOpen
+          onClose={() => {}}
+          attemptedPath="/admin"
+        />
+      </>
+    );
   }
 
   if (isLoading) return <AdminSkeleton />;
@@ -736,7 +746,7 @@ export default function AdminDashboard() {
                     d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"
                   />
                 </svg>
-                Back to Overview
+                Back to All Tickets
               </button>
             )}
           </div>
@@ -788,10 +798,10 @@ export default function AdminDashboard() {
               />
             </svg>
             <p className="mt-2 text-sm font-medium text-zinc-600 dark:text-zinc-300">
-              No support staff found
+              No support staff members found yet
             </p>
             <p className="text-xs text-zinc-400 dark:text-zinc-500">
-              Add staff members to start managing tickets
+              Add support staff to begin assigning and managing tickets
             </p>
           </div>
         )}
@@ -868,7 +878,7 @@ export default function AdminDashboard() {
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search tickets..."
+                  placeholder="Search tickets by ID, subject, or description..."
                   className="w-full rounded-lg border border-zinc-300 py-2 pl-9 pr-4 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800"
                 />
               </div>
@@ -927,7 +937,7 @@ export default function AdminDashboard() {
                       colSpan={8}
                       className="px-6 py-12 text-center text-zinc-500 dark:text-zinc-400"
                     >
-                      No tickets found matching your filters
+                       No tickets match your current filters. Try adjusting your search or status filter.
                     </td>
                   </tr>
                 ) : (
@@ -985,7 +995,7 @@ export default function AdminDashboard() {
                             </button>
                           ) : (
                             <span className="text-xs text-zinc-400">
-                              Unassigned
+                               Awaiting Assignment
                             </span>
                           )}
                         </td>
@@ -997,7 +1007,7 @@ export default function AdminDashboard() {
                             onClick={() => setSelectedTicket(ticket)}
                             className="text-xs font-medium text-foreground underline hover:no-underline"
                           >
-                            View
+                             View Details
                           </button>
                         </td>
                       </tr>
@@ -1025,7 +1035,7 @@ export default function AdminDashboard() {
           >
             <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
               <h3 id="adminTicketDetailTitle" className="text-lg font-semibold text-foreground">
-                {selectedTicket.id}
+                Ticket {selectedTicket.id}
               </h3>
               <button
                 onClick={() => setSelectedTicket(null)}
@@ -1095,7 +1105,7 @@ export default function AdminDashboard() {
                     }
                     className="mt-1 rounded-lg border border-zinc-300 px-2.5 py-1 text-sm text-foreground outline-none focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800"
                   >
-                    <option value="">Unassigned</option>
+                     <option value="">Awaiting Assignment</option>
                     {staffList.map((staff) => (
                       <option key={staff.id} value={staff.id}>
                         {staff.name} - {staff.role}
@@ -1147,13 +1157,13 @@ export default function AdminDashboard() {
           >
             <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
               <h3 id="adminStaffFormTitle" className="text-lg font-semibold text-foreground">
-                {editingStaff ? "Edit Support Staff" : "Add Support Staff"}
+                {editingStaff ? "Edit Support Staff Member" : "Add Support Staff Member"}
               </h3>
               <button
                 onClick={() => {
                   setIsStaffFormOpen(false);
                   setEditingStaff(null);
-                  setStaffForm({ name: "", email: "", role: "", customRole: "" });
+                  setStaffForm({ name: "", email: "", role: "", customRole: "", password: "" });
                 }}
                 className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
               >
@@ -1188,7 +1198,7 @@ export default function AdminDashboard() {
                     setStaffForm({ ...staffForm, name: e.target.value })
                   }
                   className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                  placeholder="Enter full name"
+                   placeholder="Enter the staff member's full name"
                 />
               </div>
               <div>
@@ -1206,16 +1216,16 @@ export default function AdminDashboard() {
                     setStaffForm({ ...staffForm, email: e.target.value })
                   }
                   className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                  placeholder="Enter email address"
+                   placeholder="Enter the staff member's work email"
                 />
               </div>
                <div>
-                <label
-                  htmlFor="staffRole"
-                  className="block text-sm font-medium text-foreground"
-                >
-                  Role / Title
-                </label>
+                  <label
+                    htmlFor="staffRole"
+                    className="block text-sm font-medium text-foreground"
+                  >
+                    Role / Job Title
+                  </label>
                 <select
                   id="staffRole"
                   value={staffForm.role}
@@ -1224,7 +1234,7 @@ export default function AdminDashboard() {
                   }
                   className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
                 >
-                  <option value="">Select a role</option>
+                  <option value="">Select a role from the list</option>
                   {VALID_STAFF_ROLES.map((role) => (
                     <option key={role} value={role}>
                       {role}
@@ -1241,21 +1251,42 @@ export default function AdminDashboard() {
                       setStaffForm({ ...staffForm, customRole: e.target.value })
                     }
                     className="mt-2 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                    placeholder="Enter custom role"
+                     placeholder="Enter a custom role title"
                   />
                 )}
-              </div>
-              {staffFormError && (
-                <p role="alert" className="text-sm text-red-600 dark:text-red-400">{staffFormError}</p>
-              )}
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsStaffFormOpen(false);
-                    setEditingStaff(null);
-                    setStaffForm({ name: "", email: "", role: "", customRole: "" });
-                  }}
+               </div>
+               {!editingStaff && (
+                 <div>
+                  <label
+                    htmlFor="staffPassword"
+                    className="block text-sm font-medium text-foreground"
+                  >
+                    Initial Password
+                  </label>
+                  <input
+                    id="staffPassword"
+                    type="password"
+                    required
+                    value={staffForm.password}
+                    onChange={(e) =>
+                      setStaffForm({ ...staffForm, password: e.target.value })
+                    }
+                    className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
+                    placeholder="Set the staff member's initial password"
+                  />
+                 </div>
+               )}
+               {staffFormError && (
+                 <p role="alert" className="text-sm text-red-600 dark:text-red-400">{staffFormError}</p>
+               )}
+               <div className="flex justify-end gap-3 pt-2">
+                 <button
+                   type="button"
+                   onClick={() => {
+                     setIsStaffFormOpen(false);
+                     setEditingStaff(null);
+                     setStaffForm({ name: "", email: "", role: "", customRole: "", password: "" });
+                   }}
                   className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
                   Cancel
@@ -1265,7 +1296,7 @@ export default function AdminDashboard() {
                   onClick={handleSaveStaff}
                   className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2"
                 >
-                  {editingStaff ? "Save Changes" : "Add Staff"}
+                  {editingStaff ? "Save Changes" : "Add Staff Member"}
                 </button>
               </div>
             </div>

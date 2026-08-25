@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, getClientIdentifier } from "@/app/api/_lib/ratelimit";
+import { sendEmail } from "@/lib/email";
+import { passwordResetNotificationEmail } from "@/lib/email-templates";
 
 export async function POST(request: NextRequest) {
   try {
@@ -72,7 +74,23 @@ export async function POST(request: NextRequest) {
 
     if (ticketError) {
       console.error("Failed to create password reset ticket:", ticketError);
+      return NextResponse.json(
+        { error: "Unable to process the request. Please try again later." },
+        { status: 500 }
+      );
     }
+
+    const templates = passwordResetNotificationEmail({
+      name: targetAccount.name,
+      email: normalizedEmail,
+    });
+
+    await sendEmail({
+      to: normalizedEmail,
+      subject: templates.subject,
+      html: templates.html,
+      text: templates.text,
+    });
 
     return genericResponse;
   } catch (error) {

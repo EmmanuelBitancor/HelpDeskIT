@@ -17,7 +17,14 @@ export default function OtpModal({ isOpen, onClose, email, onVerified }: OtpModa
   const [resendLoading, setResendLoading] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  useFocusTrap(dialogRef, isOpen, onClose);
+  const busy = loading || resendLoading;
+
+  const handleClose = () => {
+    if (busy) return;
+    onClose();
+  };
+
+  useFocusTrap(dialogRef, isOpen, handleClose);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,7 +41,7 @@ export default function OtpModal({ isOpen, onClose, email, onVerified }: OtpModa
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setError(data.error || "Invalid or expired OTP");
+        setError(data.error || "The verification code is invalid or has expired. Please request a new one.");
         setLoading(false);
         return;
       }
@@ -61,10 +68,10 @@ export default function OtpModal({ isOpen, onClose, email, onVerified }: OtpModa
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || "Failed to resend OTP");
+        setError(data.error || "We couldn't resend the verification code. Please try again.");
       }
     } catch {
-      setError("An unexpected error occurred");
+      setError("Something went wrong. Please try again.");
     }
 
     setResendLoading(false);
@@ -84,14 +91,15 @@ export default function OtpModal({ isOpen, onClose, email, onVerified }: OtpModa
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
           <h3 id="otpTitle" className="text-lg font-semibold text-foreground">
-            Verify your email
+            Verify Your Email Address
           </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close dialog"
-            className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-          >
+<button
+             type="button"
+             onClick={handleClose}
+             disabled={busy}
+             aria-label="Close verification dialog"
+             className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -100,12 +108,12 @@ export default function OtpModal({ isOpen, onClose, email, onVerified }: OtpModa
 
         <form onSubmit={handleSubmit} className="space-y-4 p-6">
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            We sent a verification code to <strong>{email}</strong>. Please enter it below.
+            We&apos;ve sent a 6-digit verification code to <strong>{email}</strong>. Please enter it below to verify your account.
           </p>
 
           <div>
             <label htmlFor="otp" className="block text-sm font-medium text-foreground">
-              OTP Code
+              Verification Code
             </label>
             <input
               id="otp"
@@ -115,7 +123,7 @@ export default function OtpModal({ isOpen, onClose, email, onVerified }: OtpModa
               value={otp}
               onChange={(e) => setOtp(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="123456"
+              placeholder="Enter 6-digit code"
             />
           </div>
 
@@ -124,8 +132,9 @@ export default function OtpModal({ isOpen, onClose, email, onVerified }: OtpModa
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
-              onClick={onClose}
-              className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              onClick={handleClose}
+              disabled={busy}
+              className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
               Cancel
             </button>
@@ -135,14 +144,14 @@ export default function OtpModal({ isOpen, onClose, email, onVerified }: OtpModa
               disabled={resendLoading}
               className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 disabled:opacity-60"
             >
-              {resendLoading ? "Resending..." : "Resend OTP"}
+              {resendLoading ? "Resending code..." : "Resend Code"}
             </button>
             <button
               type="submit"
               disabled={loading}
               className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2 disabled:opacity-60"
             >
-              {loading ? "Verifying..." : "Verify"}
+              {loading ? "Verifying..." : "Verify Code"}
             </button>
           </div>
         </form>

@@ -9,10 +9,18 @@ const memoryStore = new Map<string, { count: number; resetAt: number }>();
 export function getClientIdentifier(request: NextRequest, fallbackUserId?: string): string {
   if (fallbackUserId) return fallbackUserId;
 
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",").map((v) => v.trim()) ?? [];
-  const trustedHops = Number(process.env.TRUSTED_PROXY_HOPS ?? 1);
-  const clientIp =
-    forwarded.length >= trustedHops ? forwarded[forwarded.length - trustedHops] : undefined;
+  // Only trust x-forwarded-for when an explicit trusted proxy is configured.
+  // Without an explicit TRUSTED_PROXY_HOPS setting, client-supplied forwarding
+  // headers are ignored to prevent IP spoofing and rate-limit bypass.
+  const rawHops = process.env.TRUSTED_PROXY_HOPS;
+  const parsedHops = rawHops !== undefined ? Number(rawHops) : NaN;
+  const trustedHops = Number.isInteger(parsedHops) && parsedHops > 0 ? parsedHops : 0;
+
+  let clientIp: string | undefined;
+  if (trustedHops > 0) {
+    const forwarded = request.headers.get("x-forwarded-for")?.split(",").map((v) => v.trim()) ?? [];
+    clientIp = forwarded.length >= trustedHops ? forwarded[forwarded.length - trustedHops] : undefined;
+  }
 
   return clientIp || request.headers.get("cf-connecting-ip") || "anonymous";
 }
@@ -20,6 +28,10 @@ export function getClientIdentifier(request: NextRequest, fallbackUserId?: strin
 export async function checkRateLimit(identifier: string, namespace = "default") {
   const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
   const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+  if (process.env.NODE_ENV === "production" && !(redisUrl && redisToken)) {
+    throw new Error("Rate limit backend not configured");
+  }
 
   if (redisUrl && redisToken) {
     const { Ratelimit } = await import("@upstash/ratelimit");
