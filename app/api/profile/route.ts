@@ -57,17 +57,22 @@ export async function PATCH(request: NextRequest) {
 
     const trimmedName = name !== undefined ? name.trim() : null;
     const updates: Record<string, string> = {};
+    let emailChanged = false;
+
     if (trimmedName !== null && trimmedName !== account.name) {
       updates.name = trimmedName;
     }
 
     if (email && email !== account.email) {
+      const trimmedEmail = email.trim();
       const { error: authError } = await supabase.auth.updateUser({
-        email,
+        email: trimmedEmail,
       });
       if (authError) {
         return NextResponse.json({ error: authError.message }, { status: 400 });
       }
+      updates.email = trimmedEmail;
+      emailChanged = true;
     }
 
     if (Object.keys(updates).length === 0) {

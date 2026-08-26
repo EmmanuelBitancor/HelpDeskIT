@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import NewTicketModal from "./components/NewTicketModal";
+import TicketDetailModal from "./components/TicketDetailModal";
 import KnowledgeBase from "./components/KnowledgeBase";
 import SupportChatModal from "./components/SupportChatModal";
 import { useAuth } from "@/context/AuthContext";
@@ -52,11 +53,13 @@ function formatDate(dateString: string) {
 export default function DashboardPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [activeTab, setActiveTab] = useState<"active" | "past">("active");
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isNewTicketOpen, setIsNewTicketOpen] = useState(false);
   const [isKbOpen, setIsKbOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatTicket, setChatTicket] = useState<{ id: string; subject: string; assignedStaff: Ticket["assignedStaff"] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
 
@@ -68,7 +71,7 @@ export default function DashboardPage() {
       : "light";
   });
 
-  const { user, loading } = useAuth();
+  const { user, loading, signingOut } = useAuth();
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -267,10 +270,12 @@ if (ticketsError || staffError) {
       .join("\n");
 
     const now = new Date().toISOString();
+    const ticketId = `TK-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
     const { data, error } = await supabase
       .from("tickets")
       .insert({
+        id: ticketId,
         subject: form.subject,
         category: form.category,
         priority: form.priority,
@@ -324,6 +329,7 @@ if (ticketsError || staffError) {
 
   if (loading) return <DashboardSkeleton />;
   if (!user || user.role !== "user") {
+    if (signingOut) return null;
     return (
       <>
         <DashboardSkeleton />
@@ -451,7 +457,7 @@ if (ticketsError || staffError) {
                 Browse Knowledge Base
               </button>
               <button
-                onClick={() => setIsModalOpen(true)}
+                onClick={() => setIsNewTicketOpen(true)}
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2"
               >
                 <svg
@@ -565,11 +571,15 @@ if (ticketsError || staffError) {
               </div>
             ) : (
               <div className="space-y-3">
-                {paginatedTickets.map((ticket) => (
-                  <div
-                    key={ticket.id}
-                    className="rounded-xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
-                  >
+{paginatedTickets.map((ticket) => (
+          <div
+            key={ticket.id}
+            onClick={() => {
+              setSelectedTicket(ticket);
+              setIsDetailOpen(true);
+            }}
+            className="cursor-pointer rounded-xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
+          >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex-1">
                         <div className="flex flex-wrap items-center gap-2">
@@ -645,7 +655,8 @@ if (ticketsError || staffError) {
                       </div>
                       {(ticket.status === "open" || ticket.status === "in_progress") && ticket.assignedStaff && (
                         <button
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setChatTicket({
                               id: ticket.id,
                               subject: ticket.subject,
@@ -682,13 +693,21 @@ if (ticketsError || staffError) {
       </main>
 
       <NewTicketModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        isOpen={isNewTicketOpen}
+        onClose={() => setIsNewTicketOpen(false)}
         onSubmit={handleNewTicket}
       />
       <KnowledgeBase
         isOpen={isKbOpen}
         onClose={() => setIsKbOpen(false)}
+      />
+      <TicketDetailModal
+        isOpen={isDetailOpen}
+        onClose={() => {
+          setIsDetailOpen(false);
+          setSelectedTicket(null);
+        }}
+        ticket={selectedTicket}
       />
       {isChatOpen && chatTicket && chatTicket.assignedStaff && (
         <SupportChatModal

@@ -24,6 +24,7 @@ export interface Account {
 interface AuthContextValue {
   user: Account | null;
   loading: boolean;
+  signingOut: boolean;
   signIn: (
     email: string,
     password: string,
@@ -36,6 +37,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
+  const [signingOut, setSigningOut] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -154,35 +156,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    setSigningOut(true);
     const currentSessionId = sessionId;
     const currentUser = user;
-    if (currentSessionId) {
-      try {
-        await fetch("/api/sessions", {
+
+    // Best-effort cleanup: fire these off without blocking sign-out.
+    const cleanupPromise = currentSessionId
+      ? fetch("/api/sessions", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ session_id: currentSessionId }),
-        });
-      } catch {
-        // best-effort cleanup
-      }
-    }
-    if (currentUser) {
-      await logActivity({ action: "logout", details: `Signed out ${currentUser.email}` });
-    }
+        }).catch(() => {
+          // ignore cleanup errors
+        })
+      : Promise.resolve();
+
+    const activityPromise = currentUser
+      ? logActivity({ action: "logout", details: `Signed out ${currentUser.email}` }).catch(() => {
+          // ignore activity logging errors
+        })
+      : Promise.resolve();
+
     const { error } = await supabase.auth.signOut();
     if (error) {
+      setSigningOut(false);
       throw error;
     }
+
     if (typeof window !== "undefined") {
       localStorage.removeItem("sessionId");
     }
     setUser(null);
     setSessionId(null);
+
+    // Let background cleanup finish after state is cleared.
+    Promise.all([cleanupPromise, activityPromise]).catch(() => {
+      // swallow any remaining errors
+    }).finally(() => {
+      setSigningOut(false);
+    });
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signingOut, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

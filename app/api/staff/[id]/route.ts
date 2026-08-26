@@ -202,7 +202,7 @@ export async function PATCH(
           body: JSON.stringify({
             email: oldEmail,
             email_confirm: true,
-            user_metadata: { name: oldName, role: "support" },
+            user_metadata: { name: oldName, role: oldRole },
           }),
         }
       ).catch((err) =>
@@ -257,7 +257,7 @@ export async function PATCH(
           body: JSON.stringify({
             email: oldEmail,
             email_confirm: true,
-            user_metadata: { name: oldName, role: "support" },
+            user_metadata: { name: oldName, role: oldRole },
           }),
         }
       ).catch((err) => console.error("Rollback auth user failed:", err));

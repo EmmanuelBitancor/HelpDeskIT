@@ -86,10 +86,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (process.env.NODE_ENV === "production" && !(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN)) {
-      return NextResponse.json({ error: "Rate limit backend not configured" }, { status: 500 });
-    }
-
     const identifier = getClientIdentifier(request, user.id);
     const rateLimit = await checkRateLimit(identifier, "chatbot");
 
