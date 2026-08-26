@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomInt } from "crypto";
 import { checkRateLimit, getClientIdentifier } from "@/app/api/_lib/ratelimit";
 import { sendEmail } from "@/lib/email";
 import { otpEmail } from "@/lib/email-templates";
@@ -52,8 +53,9 @@ export async function POST(request: NextRequest) {
 
     if (!serviceRoleKey || !supabaseUrl) {
       const missing = !serviceRoleKey ? "SUPABASE_SERVICE_ROLE_KEY" : "NEXT_PUBLIC_SUPABASE_URL";
+      console.error(`Signup misconfigured: missing ${missing}`);
       return NextResponse.json(
-        { error: `Server not configured: missing ${missing}` },
+        { error: "Server not configured" },
         { status: 500 }
       );
     }
@@ -102,31 +104,88 @@ export async function POST(request: NextRequest) {
       .toUpperCase()
       .slice(0, 2);
 
-    // Insert the accounts row in pending_verification state. The resend
-    // endpoint looks for this status to know it can regenerate an OTP for
-    // an address that already has an account row.
-    const dbRes = await fetch(`${supabaseUrl}/rest/v1/accounts`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
-        Prefer: "return=representation",
-      },
-      body: JSON.stringify({
-        id: crypto.randomUUID(),
-        user_id: userId,
-        name: normalizedName,
-        email: normalizedEmail,
-        role: "user",
-        status: "pending_verification",
-        avatar: initials || "U",
-      }),
-    });
+    // The auth trigger may have already inserted an accounts row for this
+    // user. Check for an existing row by email first so we can update it
+    // instead of inserting a duplicate (which violates the unique email
+    // constraint).
+    const checkRes = await fetch(
+      `${supabaseUrl}/rest/v1/accounts?email=eq.${encodeURIComponent(normalizedEmail)}`,
+      {
+        method: "GET",
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+        },
+      }
+    );
+
+    let dbRes: Response;
+    const existingAccounts = checkRes.ok ? await checkRes.json() : [];
+    const existing = existingAccounts[0];
+
+    if (existing) {
+      if (existing.user_id && existing.user_id !== userId) {
+        // Real duplicate: this email is already linked to another auth user.
+        await fetch(`${supabaseUrl}/auth/v1/admin/users/${userId}`, {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: serviceRoleKey,
+            Authorization: `Bearer ${serviceRoleKey}`,
+          },
+        });
+        return NextResponse.json(
+          { error: "An account with this email already exists" },
+          { status: 409 }
+        );
+      }
+
+      // Orphaned row (user_id is null) or trigger-created row — claim/update it.
+      dbRes = await fetch(
+        `${supabaseUrl}/rest/v1/accounts?id=eq.${existing.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: serviceRoleKey,
+            Authorization: `Bearer ${serviceRoleKey}`,
+            Prefer: "return=representation",
+          },
+          body: JSON.stringify({
+            user_id: userId,
+            name: normalizedName,
+            email: normalizedEmail,
+            role: "user",
+            status: "pending_verification",
+            avatar: initials || "U",
+          }),
+        }
+      );
+    } else {
+      // No existing row — insert fresh.
+      dbRes = await fetch(`${supabaseUrl}/rest/v1/accounts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+          Prefer: "return=representation",
+        },
+        body: JSON.stringify({
+          id: crypto.randomUUID(),
+          user_id: userId,
+          name: normalizedName,
+          email: normalizedEmail,
+          role: "user",
+          status: "pending_verification",
+          avatar: initials || "U",
+        }),
+      });
+    }
 
     if (!dbRes.ok) {
       const dbError = await dbRes.text();
-      console.error("Failed to create account:", dbError);
+      console.error("Failed to update/create account:", dbError);
 
       const { error: deleteError } = await fetch(
         `${supabaseUrl}/auth/v1/admin/users/${userId}`,
@@ -146,7 +205,7 @@ export async function POST(request: NextRequest) {
       });
 
       if (deleteError) {
-        console.error("Failed to cleanup auth user after account creation failure:", deleteError);
+        console.error("Failed to cleanup auth user after account update failure:", deleteError);
       }
 
       return NextResponse.json(
@@ -157,8 +216,22 @@ export async function POST(request: NextRequest) {
 
     // Generate the OTP here so the user has a code as soon as the modal
     // opens, instead of having to click "Resend Code" first.
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = randomInt(100000, 1000000).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+    // Remove any existing unverified OTPs for this email before inserting
+    // the new one, so a stale code can't be reused.
+    await fetch(
+      `${supabaseUrl}/rest/v1/email_verifications?email=eq.${encodeURIComponent(normalizedEmail)}&type=eq.otp&verified=eq.false`,
+      {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+        },
+      }
+    );
 
     const otpInsertRes = await fetch(
       `${supabaseUrl}/rest/v1/email_verifications`,

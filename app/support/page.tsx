@@ -474,11 +474,18 @@ useEffect(() => {
               </button>
               <button
                 onClick={() => setIsChatOpen(true)}
-                aria-label="Chat"
+                aria-label={
+                  unreadMessages > 0
+                    ? `Chat, ${unreadMessages} unread messages`
+                    : "Chat"
+                }
                 className="relative inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
                 {unreadMessages > 0 && (
-                  <span className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white">
+                  <span
+                    aria-hidden="true"
+                    className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white"
+                  >
                     {unreadMessages > 9 ? "9+" : unreadMessages}
                   </span>
                 )}

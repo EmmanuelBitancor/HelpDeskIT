@@ -26,28 +26,6 @@ export function getClientIdentifier(request: NextRequest, fallbackUserId?: strin
 }
 
 export async function checkRateLimit(identifier: string, namespace = "default") {
-  const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
-  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
-
-  if (process.env.NODE_ENV === "production" && !(redisUrl && redisToken)) {
-    throw new Error("Rate limit backend not configured");
-  }
-
-  if (redisUrl && redisToken) {
-    const { Ratelimit } = await import("@upstash/ratelimit");
-    const { Redis } = await import("@upstash/redis");
-
-    const redis = new Redis({ url: redisUrl, token: redisToken });
-    const ratelimit = new Ratelimit({
-      redis,
-      limiter: Ratelimit.slidingWindow(RATE_LIMIT_REQUESTS, "1 m"),
-      analytics: true,
-    });
-
-    const { success, remaining } = await ratelimit.limit(`${namespace}:${identifier}`);
-    return { success, remaining };
-  }
-
   const now = Date.now();
   const key = `${namespace}:${identifier}`;
 

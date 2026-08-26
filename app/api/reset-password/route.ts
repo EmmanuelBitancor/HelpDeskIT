@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
 
     const { data: resetRecord } = await supabase
       .from("password_resets")
-      .select("*, user_id")
+      .select("*")
       .eq("token", token.trim())
       .eq("used", false)
       .gt("expires_at", new Date().toISOString())
@@ -29,14 +29,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (!resetRecord.user_id) {
-      return NextResponse.json(
-        { error: "Reset token is not linked to a user" },
-        { status: 500 }
-      );
-    }
-
-    // Token is valid — return success without mutating anything.
+    // Token is valid — proceed with password reset.
     return NextResponse.json({ valid: true });
   } catch (error) {
     console.error("Reset password token verification error:", error);
@@ -70,7 +63,7 @@ export async function POST(request: NextRequest) {
 
     const { data: resetRecord } = await supabase
       .from("password_resets")
-      .select("*, user_id")
+      .select("*")
       .eq("token", token.trim())
       .eq("used", false)
       .gt("expires_at", new Date().toISOString())
@@ -83,13 +76,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!resetRecord.user_id) {
-      return NextResponse.json(
-        { error: "Reset token is not linked to a user" },
-        { status: 500 }
-      );
-    }
-
+    // Look up the auth user by email to reset their password.
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -100,7 +87,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const updateRes = await fetch(`${supabaseUrl}/auth/v1/admin/users/${resetRecord.user_id}`, {
+    const userLookupRes = await fetch(
+      `${supabaseUrl}/auth/v1/admin/users?email=${encodeURIComponent(resetRecord.email)}`,
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+        },
+      }
+    );
+
+    if (!userLookupRes.ok) {
+      return NextResponse.json(
+        { error: "Failed to locate user account" },
+        { status: 400 }
+      );
+    }
+
+    const userData = await userLookupRes.json();
+    const authUser = (userData.users || []).find(
+      (u: { email?: string }) => u.email === resetRecord.email
+    );
+
+    if (!authUser?.id) {
+      return NextResponse.json(
+        { error: "User account not found" },
+        { status: 404 }
+      );
+    }
+
+    const updateRes = await fetch(`${supabaseUrl}/auth/v1/admin/users/${authUser.id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",

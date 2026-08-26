@@ -41,6 +41,7 @@ export async function logActivity(params: {
     const res = await fetch("/api/activity", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify(params),
     });
     if (!res.ok && process.env.NODE_ENV !== "production") {

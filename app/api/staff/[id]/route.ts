@@ -66,8 +66,9 @@ export async function PATCH(
 
     if (!serviceRoleKey || !supabaseUrl) {
       const missing = !serviceRoleKey ? "SUPABASE_SERVICE_ROLE_KEY" : "NEXT_PUBLIC_SUPABASE_URL";
+      console.error(`Staff update misconfigured: missing ${missing}`);
       return NextResponse.json(
-        { error: `Server not configured: missing ${missing}` },
+        { error: "Server not configured" },
         { status: 500 }
       );
     }

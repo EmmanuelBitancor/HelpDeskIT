@@ -29,8 +29,9 @@ export async function GET() {
 
     if (!serviceRoleKey || !supabaseUrl) {
       const missing = !serviceRoleKey ? "SUPABASE_SERVICE_ROLE_KEY" : "NEXT_PUBLIC_SUPABASE_URL";
+      console.error(`Users misconfigured: missing ${missing}`);
       return NextResponse.json(
-        { error: `Server not configured: missing ${missing}` },
+        { error: "Server not configured" },
         { status: 500 }
       );
     }
@@ -184,8 +185,9 @@ export async function POST(request: NextRequest) {
 
     if (!serviceRoleKey || !supabaseUrl) {
       const missing = !serviceRoleKey ? "SUPABASE_SERVICE_ROLE_KEY" : "NEXT_PUBLIC_SUPABASE_URL";
+      console.error(`Users misconfigured: missing ${missing}`);
       return NextResponse.json(
-        { error: `Server not configured: missing ${missing}` },
+        { error: "Server not configured" },
         { status: 500 }
       );
     }
