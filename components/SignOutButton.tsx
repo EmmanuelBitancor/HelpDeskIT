@@ -16,12 +16,12 @@ export default function SignOutButton() {
 
   const handleConfirm = async () => {
     setError(null);
+    setConfirmOpen(false);
+    router.replace("/");
     try {
       await signOut();
-      setConfirmOpen(false);
-      router.replace("/");
     } catch {
-      setError("Failed to sign out. Please try again.");
+      // Already redirecting, ignore sign-out errors after navigation started.
     }
   };
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useNotifications } from "@/app/hooks/useNotifications";
 
 const supabase = createClient();
 
@@ -51,6 +52,7 @@ export default function SupportChatModal({
   currentUser,
   assignedStaff,
 }: SupportChatModalProps) {
+  const { refresh: refreshNotifications } = useNotifications();
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
@@ -199,6 +201,7 @@ export default function SupportChatModal({
           await fetch(`/api/messages/read?conversation_id=${conversation.id}`, {
             method: "PATCH",
           });
+          refreshNotifications();
         }
       } catch {
         // ignore

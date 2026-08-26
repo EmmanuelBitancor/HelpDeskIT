@@ -68,7 +68,7 @@ function getAvatarColor(name: string) {
 }
 
 export default function SupportDashboard() {
-  const { user, loading } = useAuth();
+  const { user, loading, signingOut } = useAuth();
   const { unreadMessages } = useNotifications();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -76,13 +76,14 @@ export default function SupportDashboard() {
   const [isLoadingStaff, setIsLoadingStaff] = useState(true);
   const [resolvedStaffId, setResolvedStaffId] = useState<string | null>(null);
   const ticketChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const refreshRef = useRef<() => Promise<SupportStaff | null>>(async () => null);
 
   const currentStaff = useMemo<SupportStaff | null>(
     () => (user ? staffList.find((s) => s.email === user.email) ?? null : null),
     [user, staffList],
   );
 
-  useEffect(() => {
+useEffect(() => {
     if (!user?.email) return;
     let mounted = true;
     const channels: ReturnType<typeof supabase.channel>[] = [];
@@ -148,6 +149,8 @@ export default function SupportDashboard() {
       }
     };
 
+    refreshRef.current = refresh;
+
     (async () => {
       const cachedStaff = getCachedData<SupportStaff[]>("support_staff");
       const cachedTickets = getCachedData<Ticket[]>("support_tickets");
@@ -173,8 +176,8 @@ export default function SupportDashboard() {
       mounted = false;
       channels.forEach((channel) => supabase.removeChannel(channel));
     };
-  }, [user?.email]);
-  const [search, setSearch] = useState("");
+}, [user?.email]);
+   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<TicketStatus | "all">("all");
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [draftStatus, setDraftStatus] = useState<Ticket["status"]>("open");
@@ -212,10 +215,7 @@ export default function SupportDashboard() {
         "postgres_changes",
         { event: "*", schema: "public", table: "tickets", filter: `assigned_to=eq.${resolvedStaffId}` },
         () => {
-          // Re-fetch when the staff row might have been assigned new tickets.
-          // We re-run the existing refresh closure by looking it up from the
-          // channels array on the active component instance.
-          // (Cheap signal: any assigned-ticket change triggers refresh().)
+          refreshRef.current();
         }
       );
     ticketChannelRef.current = channel;
@@ -376,6 +376,7 @@ export default function SupportDashboard() {
 
   if (loading) return <SupportSkeleton />;
   if (!user || user.role !== "support") {
+    if (signingOut) return null;
     return (
       <>
         <SupportSkeleton />

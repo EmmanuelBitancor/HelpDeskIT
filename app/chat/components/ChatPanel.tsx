@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Skeleton } from "@/components/skeleton";
 import { createClient } from "@/lib/supabase/client";
+import { useNotifications } from "@/app/hooks/useNotifications";
 
 const supabase = createClient();
 
@@ -48,6 +49,7 @@ export default function ChatPanel({
   title = "Messages",
   onClose,
 }: ChatPanelProps) {
+  const { refresh: refreshNotifications } = useNotifications();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
@@ -244,6 +246,13 @@ export default function ChatPanel({
       if (selectedIdRef.current === conversation.id && res.ok && data.messages) {
         setMessages(data.messages);
         setUnreadCounts((prev) => ({ ...prev, [conversation.id]: 0 }));
+        await fetch(`/api/messages/read?conversation_id=${conversation.id}`, {
+          method: "PATCH",
+        });
+        refreshNotifications();
+        // Refresh the conversations list so the server-side unread counts
+        // are recalculated and stay cleared after re-renders.
+        loadConversations();
       }
     } catch {
       // ignore

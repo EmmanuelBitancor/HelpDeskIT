@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Ticket not found" }, { status: 404 });
       }
 
-      if (ticket.submitted_by !== account.email && !["support", "admin"].includes(account.role)) {
+      if (ticket.submitted_by !== account.email && !["support", "admin", "superadmin"].includes(account.role)) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
 
@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
 
       if (
         !staffAccount ||
-        (account.role !== "support" && !["support", "admin"].includes(staffAccount.role))
+        (account.role !== "support" && !["support", "admin", "superadmin"].includes(staffAccount.role))
       ) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
@@ -205,7 +205,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      if (account.role !== "support" && !["support", "admin"].includes(targetAccount.role)) {
+      if (account.role !== "support" && !["support", "admin", "superadmin"].includes(targetAccount.role)) {
         return NextResponse.json(
           { error: "Forbidden" },
           { status: 403 }

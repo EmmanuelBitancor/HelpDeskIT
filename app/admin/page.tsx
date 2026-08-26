@@ -207,7 +207,7 @@ export default function AdminDashboard() {
     };
   }, [isStaffFormOpen, getFocusableElements]);
 
-  const { user, loading } = useAuth();
+  const { user, loading, signingOut } = useAuth();
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -579,6 +579,7 @@ export default function AdminDashboard() {
 
   if (loading) return <AdminSkeleton />;
   if (!user || user.role !== "admin") {
+    if (signingOut) return null;
     return (
       <>
         <AdminSkeleton />

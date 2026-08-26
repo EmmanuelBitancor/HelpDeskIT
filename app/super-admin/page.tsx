@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import SignOutButton from "@/components/SignOutButton";
 import { SuperAdminSkeleton, Skeleton } from "@/components/skeleton";
@@ -38,6 +38,8 @@ function toTicket(row: Record<string, unknown>): Ticket {
     status: (row.status as TicketStatus) ?? "open",
     createdAt: String(row.created_at ?? ""),
     updatedAt: String(row.updated_at ?? ""),
+    description: String(row.description ?? ""),
+    assignedTo: row.assigned_to ? String(row.assigned_to) : undefined,
     assignedAgent: staff?.name ? String(staff.name) : "Unassigned",
     submittedBy: row.submitted_by ? String(row.submitted_by) : "—",
   };
@@ -101,6 +103,8 @@ interface Ticket {
   status: TicketStatus;
   createdAt: string;
   updatedAt: string;
+  description: string;
+  assignedTo?: string;
   assignedAgent: string;
   submittedBy: string;
 }
@@ -644,7 +648,12 @@ function UsersSection({
   );
 }
 
-function TicketsSection({ tickets }: { tickets: Ticket[] }) {
+function TicketsSection({ tickets, staffList, onViewTicket, onReassign }: {
+  tickets: Ticket[];
+  staffList: Array<{ id: string; name: string; email: string; role: string; avatar: string; active: boolean }>;
+  onViewTicket: (ticket: Ticket) => void;
+  onReassign: (ticketId: string, staffId: string) => void;
+}) {
   const [filter, setFilter] = useState<TicketStatus | "all">("all");
 
   const filtered =
@@ -712,17 +721,10 @@ function TicketsSection({ tickets }: { tickets: Ticket[] }) {
                 </div>
               </div>
               <div className="flex gap-2">
+                <ReassignButton ticket={ticket} staffList={staffList} onReassign={onReassign} />
                 <button
+                  onClick={() => onViewTicket(ticket)}
                   className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                  disabled
-                  title="Coming soon"
-                >
-                  Reassign
-                </button>
-                <button
-                  className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                  disabled
-                  title="Coming soon"
                 >
                   View
                 </button>
@@ -740,6 +742,70 @@ function TicketsSection({ tickets }: { tickets: Ticket[] }) {
             No tickets in this category.
           </p>
         </div>
+      )}
+    </div>
+  );
+}
+
+function ReassignButton({ ticket, staffList, onReassign }: {
+  ticket: Ticket;
+  staffList: Array<{ id: string; name: string; email: string; role: string; avatar: string; active: boolean }>;
+  onReassign: (ticketId: string, staffId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const activeStaff = staffList.filter((s) => s.active);
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((prev) => !prev)}
+        className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+      >
+        Reassign
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-[55]" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-[60] mt-1 w-56 rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            <div className="px-3 py-2 text-xs font-medium text-zinc-500 dark:text-zinc-400 border-b border-zinc-100 dark:border-zinc-800">
+              Assign to
+            </div>
+            <div className="max-h-48 overflow-y-auto py-1">
+              <button
+                onClick={() => {
+                  onReassign(ticket.id, "");
+                  setOpen(false);
+                }}
+                className="flex w-full items-center px-3 py-2 text-left text-xs text-zinc-600 transition-colors hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              >
+                Unassigned
+              </button>
+              {activeStaff.map((staff) => (
+                <button
+                  key={staff.id}
+                  onClick={() => {
+                    onReassign(ticket.id, staff.id);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800 ${
+                    ticket.assignedTo === staff.id
+                      ? "text-foreground font-medium"
+                      : "text-zinc-600 dark:text-zinc-400"
+                  }`}
+                >
+                  <span
+                    className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold text-white ${
+                      staff.avatar ? "bg-zinc-400" : "bg-zinc-500"
+                    }`}
+                  >
+                    {staff.name.charAt(0)}
+                  </span>
+                  {staff.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
@@ -1392,6 +1458,9 @@ export default function SuperAdminDashboard() {
     const cached = getCachedData<Ticket[]>("superadmin_tickets");
     return cached?.data || [];
   });
+  const [staffList, setStaffList] = useState<
+    Array<{ id: string; name: string; email: string; role: string; avatar: string; active: boolean }>
+  >([]);
   const [logs, setLogs] = useState<SystemLog[]>(() => {
     const cached = getCachedData<SystemLog[]>("superadmin_logs");
     return cached?.data || [];
@@ -1404,9 +1473,10 @@ export default function SuperAdminDashboard() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const { unreadMessages } = useNotifications();
 
-  const { user, loading } = useAuth();
+  const { user, loading, signingOut } = useAuth();
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -1422,6 +1492,16 @@ export default function SuperAdminDashboard() {
   }, [activeSection]);
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ticketDialogRef = useRef<HTMLDivElement>(null);
+
+  const getFocusableElements = useCallback((root: HTMLElement | null) => {
+    if (!root) return [];
+    return Array.from(
+      root.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((el) => !el.hasAttribute("disabled"));
+  }, []);
 
   useEffect(() => {
     if (loading) return;
@@ -1439,13 +1519,53 @@ export default function SuperAdminDashboard() {
   }, [user, loading]);
 
   useEffect(() => {
+    if (!selectedTicket || !ticketDialogRef.current) return;
+
+    const previousFocus = document.activeElement as HTMLElement;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSelectedTicket(null);
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      const focusable = getFocusableElements(ticketDialogRef.current);
+      if (!focusable.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first || !ticketDialogRef.current?.contains(document.activeElement)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last || !ticketDialogRef.current?.contains(document.activeElement)) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    ticketDialogRef.current.focus();
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previousFocus.focus();
+    };
+  }, [selectedTicket, getFocusableElements]);
+
+  useEffect(() => {
     if (!user || user.role !== "superadmin") return;
     let mounted = true;
 
     const refresh = async () => {
       try {
         setLoadError(null);
-        const [healthRes, usersRes, ticketsRes, logsRes, activityRes] = await Promise.all([
+        const [healthRes, usersRes, ticketsRes, staffRes, logsRes, activityRes] = await Promise.all([
           supabase
             .from("system_health")
             .select("*")
@@ -1463,6 +1583,10 @@ export default function SuperAdminDashboard() {
             .select("*, support_staff!left(name)")
             .order("created_at", { ascending: false }),
           supabase
+            .from("support_staff")
+            .select("*")
+            .order("name"),
+          supabase
             .from("system_logs")
             .select("*")
             .order("timestamp", { ascending: false })
@@ -1479,6 +1603,7 @@ export default function SuperAdminDashboard() {
           healthRes.error ??
           (usersRes.error && usersRes.error) ??
           ticketsRes.error ??
+          staffRes.error ??
           logsRes.error ??
           activityRes.error;
         if (firstError) {
@@ -1503,6 +1628,17 @@ export default function SuperAdminDashboard() {
           const tickets = ticketsRes.data.map(toTicket);
           setTickets(tickets);
           setCachedData("superadmin_tickets", tickets, 30_000);
+        }
+        if (staffRes.data) {
+          const staff = staffRes.data.map((row: Record<string, unknown>) => ({
+            id: String(row.id),
+            name: String(row.name ?? ""),
+            email: String(row.email ?? ""),
+            role: String(row.role ?? ""),
+            avatar: String(row.avatar ?? ""),
+            active: Boolean(row.active),
+          }));
+          setStaffList(staff);
         }
         if (logsRes.data) {
           const logs = logsRes.data.map(toSystemLog);
@@ -1669,6 +1805,39 @@ export default function SuperAdminDashboard() {
     });
   };
 
+  const assignTicket = async (ticketId: string, staffId: string) => {
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from("tickets")
+      .update({ assigned_to: staffId || null, updated_at: now })
+      .eq("id", ticketId);
+    if (error) {
+      setActionError(error.message);
+      return;
+    }
+    setTickets((prev) =>
+      prev.map((t) =>
+        t.id === ticketId
+          ? { ...t, assignedTo: staffId || undefined, assignedAgent: staffId ? (staffList.find((s) => s.id === staffId)?.name ?? "Unassigned") : "Unassigned", updatedAt: now }
+          : t,
+      ),
+    );
+    setSelectedTicket((prev) =>
+      prev && prev.id === ticketId
+        ? { ...prev, assignedTo: staffId || undefined, assignedAgent: staffId ? (staffList.find((s) => s.id === staffId)?.name ?? "Unassigned") : "Unassigned", updatedAt: now }
+        : prev,
+    );
+    const staff = staffList.find((s) => s.id === staffId);
+    await logActivity({
+      action: "ticket_assigned",
+      target_type: "ticket",
+      target_id: ticketId,
+      details: staff
+        ? `Assigned to ${staff.name}`
+        : "Unassigned from staff",
+    });
+  };
+
   const toggleTheme = () => {
     setTheme((prev) => {
       const next = prev === "dark" ? "light" : "dark";
@@ -1771,6 +1940,7 @@ export default function SuperAdminDashboard() {
 
 if (loading) return <SuperAdminSkeleton />;
   if (!user || user.role !== "superadmin") {
+    if (signingOut) return null;
     return (
       <>
         <SuperAdminSkeleton />
@@ -1962,7 +2132,14 @@ if (loading) return <SuperAdminSkeleton />;
                 onEditRole={handleEditRole}
               />
             )}
-            {activeSection === "tickets" && <TicketsSection tickets={tickets} />}
+            {activeSection === "tickets" && (
+              <TicketsSection
+                tickets={tickets}
+                staffList={staffList}
+                onViewTicket={setSelectedTicket}
+                onReassign={assignTicket}
+              />
+            )}
             {activeSection === "activity" && <ActivitySection activities={activities} />}
             {activeSection === "sessions" && <SessionsSection />}
             {activeSection === "system" && <SystemSection health={health} />}
@@ -2029,6 +2206,79 @@ if (loading) return <SuperAdminSkeleton />;
           title="Messages"
           onClose={() => setIsChatOpen(false)}
         />
+      )}
+      {selectedTicket && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setSelectedTicket(null)}
+        >
+          <div
+            ref={ticketDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="superAdminTicketDetailTitle"
+            tabIndex={-1}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
+          >
+            <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
+              <h3 id="superAdminTicketDetailTitle" className="text-lg font-semibold text-foreground">
+                Ticket {selectedTicket.id}
+              </h3>
+              <button
+                onClick={() => setSelectedTicket(null)}
+                className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+                aria-label="Close"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="max-h-[70vh] overflow-y-auto space-y-4 p-6">
+              <div>
+                <h4 className="text-sm font-semibold text-foreground">{selectedTicket.subject}</h4>
+                <p className="mt-2 whitespace-pre-line text-sm text-zinc-600 dark:text-zinc-400">
+                  {selectedTicket.description.replace(/\s*\|\s*/g, '\n')}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Category</p>
+                  <p className="mt-1 text-sm text-foreground">{selectedTicket.category}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Priority</p>
+                  <p className={`mt-1 text-sm font-medium ${priorityStyles[selectedTicket.priority]}`}>
+                    {selectedTicket.priority}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Status</p>
+                  <span className={`mt-1 inline-flex items-center rounded-full px-2.5 py-1 text-sm font-medium ${ticketStatusStyles[selectedTicket.status]}`}>
+                    {selectedTicket.status.replace("_", " ")}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Assigned To</p>
+                  <p className="mt-1 text-sm text-foreground">{selectedTicket.assignedAgent}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Submitted By</p>
+                  <p className="mt-1 text-sm text-foreground">{selectedTicket.submittedBy}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Created</p>
+                  <p className="mt-1 text-sm text-foreground">{formatDate(selectedTicket.createdAt)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Updated</p>
+                  <p className="mt-1 text-sm text-foreground">{formatDate(selectedTicket.updatedAt)}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

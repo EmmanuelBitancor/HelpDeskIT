@@ -224,7 +224,7 @@ export async function POST(request: NextRequest) {
     if (!authRes.ok) {
 console.error("Supabase auth error:", authData);
       return NextResponse.json(
-        { error: "Failed to fetch users from authentication" },
+        { error: "Failed to create user" },
         { status: 500 }
       );
     }
