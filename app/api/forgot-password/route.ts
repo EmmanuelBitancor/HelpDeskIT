@@ -71,7 +71,6 @@ export async function POST(request: NextRequest) {
       email: normalizedEmail,
       token,
       expires_at: expiresAt,
-      user_id: targetAccount.user_id,
     });
 
     if (insertError) {

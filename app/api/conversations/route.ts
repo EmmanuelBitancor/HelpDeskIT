@@ -258,6 +258,34 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error("Conversation insert error:", error);
+
+      // Handle concurrent-create race: if a unique constraint was violated,
+      // another request inserted the same conversation. Fetch and return it.
+      const isUniqueViolation =
+        (error as { code?: string }).code === "23505" ||
+        /unique constraint|duplicate key/i.test(error.message || "");
+
+      if (isUniqueViolation) {
+        const { data: existing, error: fetchError } = await supabase
+          .from("conversations")
+          .select("*")
+          .eq("created_by", account.id)
+          .eq("created_for", resolvedStaffId)
+          .maybeSingle();
+
+        if (fetchError) {
+          console.error("Conversation fetch after race error:", fetchError);
+          return NextResponse.json(
+            { error: "Failed to load conversation after race condition" },
+            { status: 500 }
+          );
+        }
+
+        if (existing) {
+          return NextResponse.json({ conversation: existing }, { status: 200 });
+        }
+      }
+
       const message = error.message || "Failed to create conversation";
       return NextResponse.json(
         { error: message.includes("does not exist") ? "Chat system not initialized. Please run the database migration." : message },

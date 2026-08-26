@@ -69,28 +69,32 @@ export default function TicketDetailModal({
 
   useEffect(() => {
     if (isOpen && ticket) {
+      let active = true;
       const fetchHistory = async () => {
         setIsLoadingHistory(true);
         try {
           const response = await fetch(`/api/ticket-history/${ticket.id}`);
-          if (response.ok) {
+          if (active && response.ok) {
             const data = await response.json();
             setHistory(data.entries ?? []);
           }
         } catch (error) {
           console.error("Failed to fetch ticket history:", error);
         } finally {
-          setIsLoadingHistory(false);
+          if (active) setIsLoadingHistory(false);
         }
       };
       fetchHistory();
+      return () => {
+        active = false;
+      };
     }
   }, [isOpen, ticket]);
 
   useEffect(() => {
     if (!isOpen) return;
 
-    const previousFocus = document.activeElement as HTMLElement;
+    const previousFocus = document.activeElement;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -123,7 +127,9 @@ export default function TicketDetailModal({
 
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      previousFocus.focus();
+      if (previousFocus instanceof HTMLElement) {
+        previousFocus.focus();
+      }
     };
   }, [isOpen, onClose, getFocusableElements]);
 
