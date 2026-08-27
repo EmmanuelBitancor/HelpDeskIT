@@ -1,0 +1,201 @@
+import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/app/api/_lib/auth";
+
+export async function createConversationHandler(request: NextRequest) {
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+
+  const supabase = authResult.supabase;
+  const account = authResult.account;
+
+  const body = await request.json();
+  const { created_for, staff_email, ticket_id } = body;
+
+  let resolvedStaffId: string | null = null;
+  let resolvedStaffRole: string | null = null;
+
+  if (ticket_id) {
+    const { data: ticket } = await supabase
+      .from("tickets")
+      .select("assigned_to, submitted_by")
+      .eq("id", ticket_id)
+      .maybeSingle();
+
+    if (!ticket) {
+      return NextResponse.json({ error: "Ticket not found" }, { status: 404 });
+    }
+
+    if (ticket.submitted_by !== account.email && !["support", "admin", "superadmin"].includes(account.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    if (!ticket.assigned_to) {
+      return NextResponse.json(
+        { error: "Ticket has no assigned support" },
+        { status: 400 },
+      );
+    }
+
+    const { data: staffRecord } = await supabase
+      .from("support_staff")
+      .select("email")
+      .eq("id", ticket.assigned_to)
+      .maybeSingle();
+
+    if (!staffRecord?.email) {
+      return NextResponse.json(
+        { error: "Assigned support record not found" },
+        { status: 400 },
+      );
+    }
+
+    const { data: staffAccount } = await supabase
+      .from("accounts")
+      .select("id, role")
+      .eq("email", staffRecord.email)
+      .maybeSingle();
+
+    if (!staffAccount) {
+      return NextResponse.json(
+        { error: "Assigned support account not found" },
+        { status: 400 },
+      );
+    }
+
+    resolvedStaffId = staffAccount.id;
+    resolvedStaffRole = staffAccount.role;
+  } else if (staff_email) {
+    if (typeof staff_email !== "string") {
+      return NextResponse.json(
+        { error: "Invalid staff_email format" },
+        { status: 400 },
+      );
+    }
+
+    const { data: staffAccount } = await supabase
+      .from("accounts")
+      .select("id, role")
+      .eq("email", staff_email)
+      .maybeSingle();
+
+    if (
+      !staffAccount ||
+      (account.role !== "support" && !["support", "admin", "superadmin"].includes(staffAccount.role))
+    ) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    resolvedStaffId = staffAccount.id;
+    resolvedStaffRole = staffAccount.role;
+  } else if (created_for) {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (typeof created_for !== "string" || !uuidRegex.test(created_for)) {
+      return NextResponse.json(
+        { error: "Invalid created_for format" },
+        { status: 400 },
+      );
+    }
+
+    const { data: targetAccount } = await supabase
+      .from("accounts")
+      .select("id, role")
+      .eq("id", created_for)
+      .maybeSingle();
+
+    if (!targetAccount) {
+      return NextResponse.json(
+        { error: "Target account not found" },
+        { status: 400 },
+      );
+    }
+
+    if (account.role !== "support" && !["support", "admin", "superadmin"].includes(targetAccount.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    resolvedStaffId = targetAccount.id;
+    resolvedStaffRole = targetAccount.role;
+  } else {
+    return NextResponse.json(
+      { error: "created_for, staff_email, or ticket_id is required" },
+      { status: 400 },
+    );
+  }
+
+  const { data: existingConversation, error: existingError } = await supabase
+    .from("conversations")
+    .select("*")
+    .limit(1)
+    .or(
+      `and(created_by.eq.${account.id},created_for.eq.${resolvedStaffId}),and(created_by.eq.${resolvedStaffId},created_for.eq.${account.id})`,
+    )
+    .maybeSingle();
+
+  if (existingError) {
+    console.error("Conversation lookup error:", existingError);
+    return NextResponse.json(
+      { error: "Failed to check existing conversation" },
+      { status: 500 },
+    );
+  }
+
+  if (existingConversation) {
+    return NextResponse.json({ conversation: existingConversation }, { status: 200 });
+  }
+
+  const conversationId = `conv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+  const { data, error } = await supabase
+    .from("conversations")
+    .insert({
+      id: conversationId,
+      created_by: account.id,
+      created_for: resolvedStaffId,
+      created_by_role: account.role,
+      created_for_role: resolvedStaffRole,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Conversation insert error:", error);
+
+    const isUniqueViolation =
+      (error as { code?: string }).code === "23505" ||
+      /unique constraint|duplicate key/i.test(error.message || "");
+
+    if (isUniqueViolation) {
+      const { data: existing, error: fetchError } = await supabase
+        .from("conversations")
+        .select("*")
+        .eq("created_by", account.id)
+        .eq("created_for", resolvedStaffId)
+        .maybeSingle();
+
+      if (fetchError) {
+        console.error("Conversation fetch after race error:", fetchError);
+        return NextResponse.json(
+          { error: "Failed to load conversation after race condition" },
+          { status: 500 },
+        );
+      }
+
+      if (existing) {
+        return NextResponse.json({ conversation: existing }, { status: 200 });
+      }
+    }
+
+    const message = error.message || "Failed to create conversation";
+    return NextResponse.json(
+      {
+        error:
+          message.includes("does not exist") ?
+            "Chat system not initialized. Please run the database migration." :
+            message,
+      },
+      { status: 400 },
+    );
+  }
+
+  return NextResponse.json({ conversation: data }, { status: 201 });
+}

@@ -3,25 +3,17 @@ import { createClient } from "@/lib/supabase/server";
 import { sendEmail } from "@/lib/email";
 import { passwordResetEmail, passwordResetNotificationEmail } from "@/lib/email-templates";
 import { checkRateLimit, getClientIdentifier } from "@/app/api/_lib/ratelimit";
+import { validateEmail } from "@/app/api/_lib/request";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { email } = body;
+    const bodyResult = await parseJsonBody<{ email: unknown }>(request);
+    if (!bodyResult.ok) return NextResponse.json({ error: bodyResult.error }, { status: 400 });
 
-    if (!email || typeof email !== "string") {
-      return NextResponse.json(
-        { error: "Email is required" },
-        { status: 400 }
-      );
-    }
-
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      return NextResponse.json(
-        { error: "Invalid email address" },
-        { status: 400 }
-      );
+    const { email } = bodyResult.data;
+    const normalizedEmail = validateEmail(email);
+    if (!normalizedEmail) {
+      return NextResponse.json({ error: "Invalid email address" }, { status: 400 });
     }
 
     const identifier = getClientIdentifier(request);
@@ -30,7 +22,7 @@ export async function POST(request: NextRequest) {
     if (!rateLimit.success) {
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
-        { status: 429 }
+        { status: 429 },
       );
     }
 
@@ -45,7 +37,7 @@ export async function POST(request: NextRequest) {
       console.error("Missing NEXT_PUBLIC_SITE_URL in production environment");
       return NextResponse.json(
         { error: "Server not configured" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -77,7 +69,7 @@ export async function POST(request: NextRequest) {
       console.error("Failed to create password reset token:", insertError);
       return NextResponse.json(
         { error: "Unable to process the request. Please try again later." },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -105,5 +97,16 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Forgot password error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+async function parseJsonBody<T = unknown>(
+  request: NextRequest,
+): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  try {
+    const data = (await request.json()) as T;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Invalid JSON body" };
   }
 }

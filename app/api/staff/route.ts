@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { sendEmail } from "@/lib/email";
 import { staffWelcomeEmail } from "@/lib/email-templates";
+import { requireAuth } from "@/app/api/_lib/auth";
+import { validateEmail } from "@/app/api/_lib/request";
 
 function getInitials(name: string) {
   return name
@@ -13,95 +14,83 @@ function getInitials(name: string) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { name, email, password, role, generatePassword } = body;
+    const authResult = await requireAuth();
+    if (authResult instanceof NextResponse) return authResult;
+
+    const forbidden = requireAdmin(authResult.account);
+    if (forbidden) return forbidden;
+
+    const serviceRole = serviceRoleHeaders();
+    if (!serviceRole) {
+      console.error("Staff misconfigured: missing service role");
+      return NextResponse.json({ error: "Server not configured" }, { status: 500 });
+    }
+
+    const bodyResult = await parseJsonBody<{
+      name: unknown;
+      email: unknown;
+      password: unknown;
+      role: unknown;
+      generatePassword?: unknown;
+    }>(request);
+    if (!bodyResult.ok) return NextResponse.json({ error: bodyResult.error }, { status: 400 });
+
+    const { name, email, password, role, generatePassword } = bodyResult.data;
 
     if (typeof name !== "string" || typeof email !== "string" || typeof role !== "string") {
       return NextResponse.json(
         { error: "Name, email, and role are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    if (!name.trim() || !email.trim() || !role.trim()) {
+    const trimmedName = name.trim();
+    const trimmedEmail = validateEmail(email);
+    const trimmedRole = role.trim();
+
+    if (!trimmedName || !trimmedEmail || !trimmedRole) {
       return NextResponse.json(
         { error: "Name, email, and role are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    if (name.trim().length > 100 || role.trim().length > 100 || email.length > 254) {
+    if (trimmedName.length > 100 || trimmedRole.length > 100 || trimmedEmail.length > 254) {
       return NextResponse.json(
         { error: "Name, email, or role is too long" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
+    let resolvedPassword: string;
     if (generatePassword === true) {
       if (typeof password !== "undefined" && (typeof password !== "string" || password.length < 8)) {
         return NextResponse.json(
           { error: "Password must be at least 8 characters" },
-          { status: 400 }
+          { status: 400 },
         );
       }
+      resolvedPassword = crypto.randomUUID();
     } else {
       if (typeof password !== "string" || password.length < 8) {
         return NextResponse.json(
           { error: "Password must be at least 8 characters" },
-          { status: 400 }
+          { status: 400 },
         );
       }
-    }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return NextResponse.json({ error: "Invalid email address" }, { status: 400 });
-    }
-
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { data: account } = await supabase
-      .from("accounts")
-      .select("role")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (!account || (account.role !== "admin" && account.role !== "superadmin")) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-    if (!serviceRoleKey || !supabaseUrl) {
-      const missing = !serviceRoleKey ? "SUPABASE_SERVICE_ROLE_KEY" : "NEXT_PUBLIC_SUPABASE_URL";
-      console.error(`Staff misconfigured: missing ${missing}`);
-      return NextResponse.json(
-        { error: "Server not configured" },
-        { status: 500 }
-      );
+      resolvedPassword = password;
     }
 
     const id = `staff-${Date.now()}`;
 
-    const authRes = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+    const authRes = await fetch(`${serviceRole.url}/auth/v1/admin/users`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
-      },
+      headers: serviceRole.headers,
       body: JSON.stringify({
-        email,
-        password: generatePassword === true ? crypto.randomUUID() : password,
+        email: trimmedEmail,
+        password: resolvedPassword,
         email_confirm: true,
-        user_metadata: { name, role: "support" },
+        user_metadata: { name: trimmedName, role: "support" },
       }),
     });
 
@@ -111,7 +100,7 @@ export async function POST(request: NextRequest) {
       console.error("Supabase auth error:", authData);
       return NextResponse.json(
         { error: "Failed to create auth user" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -120,25 +109,20 @@ export async function POST(request: NextRequest) {
     if (!userId) {
       return NextResponse.json(
         { error: "Failed to create auth user: missing user id" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
-    const initials = getInitials(name);
+    const initials = getInitials(trimmedName);
 
-    const staffRes = await fetch(`${supabaseUrl}/rest/v1/support_staff`, {
+    const staffRes = await fetch(`${serviceRole.url}/rest/v1/support_staff`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
-        Prefer: "return=representation",
-      },
+      headers: serviceRole.headers,
       body: JSON.stringify({
         id,
-        name,
-        email,
-        role,
+        name: trimmedName,
+        email: trimmedEmail,
+        role: trimmedRole,
         avatar: initials,
         active: true,
       }),
@@ -148,34 +132,25 @@ export async function POST(request: NextRequest) {
       const staffError = await staffRes.text();
       console.error("Failed to create staff:", staffError);
 
-      await fetch(`${supabaseUrl}/auth/v1/admin/users/${userId}`, {
+      await fetch(`${serviceRole.url}/auth/v1/admin/users/${userId}`, {
         method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: serviceRoleKey,
-          Authorization: `Bearer ${serviceRoleKey}`,
-        },
+        headers: serviceRole.headers,
       });
 
       return NextResponse.json(
         { error: "Failed to create staff record" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
-    const accountRes = await fetch(`${supabaseUrl}/rest/v1/accounts`, {
+    const accountRes = await fetch(`${serviceRole.url}/rest/v1/accounts`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
-        Prefer: "return=representation",
-      },
+      headers: serviceRole.headers,
       body: JSON.stringify({
         id: crypto.randomUUID(),
         user_id: userId,
-        name,
-        email,
+        name: trimmedName,
+        email: trimmedEmail,
         role: "support",
         status: "active",
         avatar: initials,
@@ -187,34 +162,29 @@ export async function POST(request: NextRequest) {
       console.error("Failed to create account:", accountError);
 
       // Rollback support_staff
-      await fetch(`${supabaseUrl}/rest/v1/support_staff?id=eq.${encodeURIComponent(id)}`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: serviceRoleKey,
-          Authorization: `Bearer ${serviceRoleKey}`,
+      await fetch(
+        `${serviceRole.url}/rest/v1/support_staff?id=eq.${encodeURIComponent(id)}`,
+        {
+          method: "DELETE",
+          headers: serviceRole.headers,
         },
-      });
+      );
 
       // Rollback auth user
-      await fetch(`${supabaseUrl}/auth/v1/admin/users/${userId}`, {
+      await fetch(`${serviceRole.url}/auth/v1/admin/users/${userId}`, {
         method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: serviceRoleKey,
-          Authorization: `Bearer ${serviceRoleKey}`,
-        },
+        headers: serviceRole.headers,
       });
 
       return NextResponse.json(
         { error: "Failed to create staff account" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
-    const templates = staffWelcomeEmail({ name, email });
+    const templates = staffWelcomeEmail({ name: trimmedName, email: trimmedEmail });
     sendEmail({
-      to: email,
+      to: trimmedEmail,
       subject: templates.subject,
       html: templates.html,
       text: templates.text,
@@ -222,13 +192,47 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      staff: { id, name, email, role, avatar: initials, active: true },
+      staff: { id, name: trimmedName, email: trimmedEmail, role: trimmedRole, avatar: initials, active: true },
     });
   } catch (error) {
     console.error("Create staff error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+function requireAdmin(account: { role: string }): NextResponse | null {
+  if (account.role !== "admin" && account.role !== "superadmin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  return null;
+}
+
+function serviceRoleHeaders() {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  if (!serviceRoleKey || !supabaseUrl) {
+    return null;
+  }
+
+  return {
+    url: supabaseUrl,
+    headers: {
+      "Content-Type": "application/json",
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      Prefer: "return=representation",
+    },
+  };
+}
+
+async function parseJsonBody<T = unknown>(
+  request: NextRequest,
+): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  try {
+    const data = (await request.json()) as T;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Invalid JSON body" };
   }
 }

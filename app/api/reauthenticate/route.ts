@@ -1,45 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, getClientIdentifier } from "@/app/api/_lib/ratelimit";
+import { requireAuth } from "@/app/api/_lib/auth";
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const authResult = await requireAuth();
+    if (authResult instanceof NextResponse) return authResult;
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const identifier = getClientIdentifier(request, user.id);
+    const identifier = getClientIdentifier(request, authResult.user.id);
     const rateLimit = await checkRateLimit(identifier, "reauthenticate");
 
     if (!rateLimit.success) {
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
-        { status: 429 }
+        { status: 429 },
       );
     }
 
-    const { email, password } = await request.json();
+    const bodyResult = await parseJsonBody<{ email: unknown; password: unknown }>(request);
+    if (!bodyResult.ok) return NextResponse.json({ error: bodyResult.error }, { status: 400 });
+
+    const { email, password } = bodyResult.data;
 
     if (typeof email !== "string" || typeof password !== "string") {
       return NextResponse.json(
         { error: "Email and password are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    if (email !== user.email) {
-      return NextResponse.json(
-        { error: "Forbidden" },
-        { status: 403 }
-      );
+    if (email !== authResult.user.email) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error } = await authResult.supabase.auth.signInWithPassword({
       email,
       password,
     });
@@ -47,15 +41,23 @@ export async function POST(request: NextRequest) {
     if (error) {
       return NextResponse.json(
         { error: "Current password is incorrect" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
     return NextResponse.json({ success: true });
   } catch {
-    return NextResponse.json(
-      { error: "Invalid request" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
+}
+
+async function parseJsonBody<T = unknown>(
+  request: NextRequest,
+): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  try {
+    const data = (await request.json()) as T;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Invalid JSON body" };
   }
 }

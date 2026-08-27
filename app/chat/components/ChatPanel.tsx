@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Skeleton } from "@/components/skeleton";
 import { createClient } from "@/lib/supabase/client";
 import { useNotifications } from "@/app/hooks/useNotifications";
+import NewConversationModal, { type UserInfo } from "./NewConversationModal";
 
 const supabase = createClient();
 
@@ -27,13 +28,6 @@ interface Message {
   content: string;
   created_at: string;
   read_at?: string | null;
-}
-
-interface UserInfo {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
 }
 
 interface ChatPanelProps {
@@ -63,7 +57,6 @@ export default function ChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
-  const newConversationRef = useRef<HTMLDivElement>(null);
   const selectedIdRef = useRef<string | null>(null);
 
   const totalUnread = useMemo(() => {
@@ -82,48 +75,6 @@ export default function ChatPanel({
       )
     ).filter((el) => !el.hasAttribute("disabled"));
   }, []);
-
-  useEffect(() => {
-    if (!showNewConversation) return;
-
-    const previousFocus = document.activeElement;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setShowNewConversation(false);
-        return;
-      }
-      if (e.key !== "Tab") return;
-
-      const focusable = getFocusableElements(newConversationRef);
-      if (!focusable.length) return;
-
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-
-      if (e.shiftKey) {
-        if (document.activeElement === first || !newConversationRef.current?.contains(document.activeElement)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (document.activeElement === last || !newConversationRef.current?.contains(document.activeElement)) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    newConversationRef.current?.focus();
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      if (previousFocus && previousFocus instanceof HTMLElement) {
-        previousFocus.focus();
-      }
-    };
-  }, [showNewConversation, getFocusableElements]);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -540,80 +491,13 @@ export default function ChatPanel({
         </div>
 
         {/* New conversation modal */}
-        {showNewConversation && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 p-4">
-            <div
-              ref={newConversationRef}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="newConversationTitle"
-              tabIndex={-1}
-              className="w-full max-w-md rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
-            >
-              <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
-                <h3 id="newConversationTitle" className="text-lg font-semibold text-foreground">
-                  New Message
-                </h3>
-                <button
-                  onClick={() => setShowNewConversation(false)}
-                  aria-label="Close dialog"
-                  className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              <div className="p-6">
-                <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
-                  Select a recipient to start a conversation:
-                </p>
-                <div className="max-h-64 space-y-2 overflow-y-auto">
-                  {recipients.length === 0 ? (
-                    <p className="text-sm text-zinc-400">No available recipients</p>
-                  ) : (
-                    recipients.map((recipient) => (
-                      <button
-                        key={recipient.id}
-                        onClick={() => startConversation(recipient.id)}
-                        className="flex w-full items-center gap-3 rounded-lg border border-zinc-200 p-3 text-left transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                      >
-                        <div
-                          className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-white ${
-                            avatarColors[(recipient.name || recipient.email).charCodeAt(0) % avatarColors.length]
-                          }`}
-                        >
-                          {(recipient.name || recipient.email)
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")
-                            .toUpperCase()
-                            .slice(0, 2)}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-foreground">{recipient.name}</p>
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                            {recipient.role} · {recipient.email}
-                          </p>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <NewConversationModal
+          show={showNewConversation}
+          recipients={recipients}
+          onClose={() => setShowNewConversation(false)}
+          onSelect={startConversation}
+        />
       </div>
     </div>
   );
 }
-
-const avatarColors = [
-  "bg-blue-500",
-  "bg-emerald-500",
-  "bg-amber-500",
-  "bg-purple-500",
-  "bg-pink-500",
-  "bg-indigo-500",
-];
