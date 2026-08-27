@@ -1,119 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-
-const RATE_LIMIT_REQUESTS = 10;
-const RATE_LIMIT_WINDOW = 60_000;
-const MAX_MEMORY_ENTRIES = 1000;
-
-const memoryStore = new Map<string, { count: number; resetAt: number }>();
-
-function getClientIdentifier(request: NextRequest, fallbackUserId?: string): string {
-  if (fallbackUserId) return fallbackUserId;
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("cf-connecting-ip") ||
-    "anonymous"
-  );
-}
-
-async function checkRateLimit(identifier: string, namespace = "default") {
-  const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
-  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
-
-  if (redisUrl && redisToken) {
-    const { Ratelimit } = await import("@upstash/ratelimit");
-    const { Redis } = await import("@upstash/redis");
-
-    const redis = new Redis({ url: redisUrl, token: redisToken });
-    const ratelimit = new Ratelimit({
-      redis,
-      limiter: Ratelimit.slidingWindow(RATE_LIMIT_REQUESTS, "1 m"),
-      analytics: true,
-    });
-
-    const { success, remaining } = await ratelimit.limit(`${namespace}:${identifier}`);
-    return { success, remaining };
-  }
-
-  const now = Date.now();
-  const key = `${namespace}:${identifier}`;
-
-  if (memoryStore.size >= MAX_MEMORY_ENTRIES) {
-    let oldestKey: string | undefined;
-    let oldestReset = Infinity;
-    for (const [k, entry] of memoryStore.entries()) {
-      if (now > entry.resetAt) {
-        memoryStore.delete(k);
-      } else if (entry.resetAt < oldestReset) {
-        oldestReset = entry.resetAt;
-        oldestKey = k;
-      }
-    }
-    if (memoryStore.size >= MAX_MEMORY_ENTRIES && oldestKey) {
-      memoryStore.delete(oldestKey);
-    }
-  }
-
-  const entry = memoryStore.get(key);
-
-  if (entry && now > entry.resetAt) {
-    memoryStore.delete(key);
-  }
-
-  const current = memoryStore.get(key);
-
-  if (!current) {
-    memoryStore.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
-    return { success: true, remaining: RATE_LIMIT_REQUESTS - 1 };
-  }
-
-  if (current.count >= RATE_LIMIT_REQUESTS) {
-    return { success: false, remaining: 0 };
-  }
-
-  current.count++;
-  return { success: true, remaining: RATE_LIMIT_REQUESTS - current.count };
-}
+import { requireAuth } from "@/app/api/_lib/auth";
+import { checkRateLimit, getClientIdentifier } from "@/app/api/_lib/ratelimit";
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const authResult = await requireAuth();
+    if (authResult instanceof NextResponse) return authResult;
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const identifier = getClientIdentifier(request, user.id);
+    const identifier = getClientIdentifier(request, authResult.user.id);
     const rateLimit = await checkRateLimit(identifier, "chatbot");
 
     if (!rateLimit.success) {
       return NextResponse.json(
         { error: "Rate limit exceeded. Please try again later." },
-        { status: 429 }
+        { status: 429 },
       );
     }
 
-    let body: unknown;
-    try {
-      body = await request.json();
-    } catch {
-      return NextResponse.json(
-        { error: "Invalid JSON body" },
-        { status: 400 }
-      );
-    }
+    const bodyResult = await parseJsonBody<{ message: string; history?: unknown }>(request);
+    if (!bodyResult.ok) return NextResponse.json({ error: bodyResult.error }, { status: 400 });
 
-    if (typeof body !== "object" || body === null) {
-      return NextResponse.json(
-        { error: "Request body must be a JSON object" },
-        { status: 400 }
-      );
-    }
-
-    const { message, history } = body as Record<string, unknown>;
+    const { message, history } = bodyResult.data;
 
     if (!message || typeof message !== "string") {
       return NextResponse.json({ error: "Message is required" }, { status: 400 });
@@ -249,7 +156,7 @@ export async function POST(request: NextRequest) {
         console.error("[chatbot] overall deadline exceeded");
         return NextResponse.json(
           { error: "AI service unavailable", details: "Overall timeout exceeded" },
-          { status: 504 }
+          { status: 504 },
         );
       }
 
@@ -263,7 +170,7 @@ export async function POST(request: NextRequest) {
           const listData = await listResp.json();
           const availableModels = (listData.models || [])
             .filter((m: { name: string; supportedGenerationMethods?: string[] }) =>
-              m.supportedGenerationMethods?.includes("generateContent") ?? false
+              m.supportedGenerationMethods?.includes("generateContent") ?? false,
             )
             .map((m: { name: string }) => m.name);
           console.log("[chatbot] available models:", availableModels);
@@ -285,7 +192,7 @@ export async function POST(request: NextRequest) {
           error: upstreamError,
           details: process.env.NODE_ENV === "development" ? body : undefined,
         },
-        { status: status >= 500 ? 502 : status }
+        { status: status >= 500 ? 502 : status },
       );
     }
 
@@ -301,5 +208,14 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Chatbot API error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+async function parseJsonBody<T = unknown>(request: NextRequest): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  try {
+    const data = (await request.json()) as T;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Invalid JSON body" };
   }
 }

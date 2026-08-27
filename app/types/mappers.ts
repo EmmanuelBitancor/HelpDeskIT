@@ -36,6 +36,7 @@ export function toSupportTicket(
     description: String(row.description ?? ""),
     submittedBy: row.submitted_by ? String(row.submitted_by) : undefined,
     assignedTo: row.assigned_to ? String(row.assigned_to) : undefined,
+    assignedAgent: "Unassigned",
     resolutionNotes: row.resolution_notes ? String(row.resolution_notes) : undefined,
     history,
   };
@@ -53,5 +54,6 @@ export function toAdminTicket(row: Record<string, unknown>): Ticket {
     description: String(row.description ?? ""),
     submittedBy: row.submitted_by ? String(row.submitted_by) : undefined,
     assignedTo: row.assigned_to ? String(row.assigned_to) : undefined,
+    assignedAgent: "Unassigned",
   };
 }
