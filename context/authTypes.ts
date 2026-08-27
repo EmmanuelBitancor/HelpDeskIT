@@ -6,5 +6,3 @@ export const roleRoutes: Record<Role, string> = {
   admin: "/admin",
   superadmin: "/super-admin",
 };
-
-export const FORBIDDEN_ROUTE = "/forbidden";

@@ -2,8 +2,9 @@
 
 import { useState, useMemo } from "react";
 import { usePagination, Pagination } from "@/components/Pagination";
+import { statusStyles, roleStyles } from "@/lib/styles";
+import { formatDate } from "@/lib/utils";
 import type { SystemUser, UserRole } from "../types";
-import { statusStyles, roleStyles, formatDate } from "../helpers";
 
 interface UsersSectionProps {
   users: SystemUser[];

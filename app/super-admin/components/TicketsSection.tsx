@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { usePagination, Pagination } from "@/components/Pagination";
-import type { Ticket, TicketStatus, TicketPriority } from "../../types/ticket";
-import { ticketStatusStyles, priorityStyles, formatDate } from "../helpers";
+import { ticketStatusStyles, priorityStyles } from "@/lib/styles";
+import { formatDate } from "@/lib/utils";
+import type { Ticket } from "../../types/ticket";
 import ReassignButton from "./ReassignButton";
 
 interface TicketsSectionProps {

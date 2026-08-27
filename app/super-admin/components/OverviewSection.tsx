@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { Pie, Bar } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -10,15 +9,7 @@ import {
   Legend,
 } from "chart.js";
 import StatCard from "./StatCard";
-import { Pagination } from "@/components/Pagination";
 import type { SystemHealth, SystemUser, Ticket, ActivityLog } from "../types";
-import {
-  ticketStatusStyles,
-  priorityStyles,
-  roleStyles,
-  statusStyles,
-  formatDate,
-} from "../helpers";
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 
