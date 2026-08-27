@@ -59,17 +59,3 @@ export function invalidateCache(key?: string): void {
   }
   keysToRemove.forEach((k) => localStorage.removeItem(k));
 }
-
-export function getCacheAge<T>(key: string): number | null {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const raw = localStorage.getItem(`${CACHE_PREFIX}${key}`);
-    if (!raw) return null;
-
-    const entry = JSON.parse(raw) as CacheEntry<T>;
-    return Date.now() - entry.timestamp;
-  } catch {
-    return null;
-  }
-}

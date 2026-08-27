@@ -1,5 +1,3 @@
-import type { SystemHealth } from "../types";
-
 interface MetricBarProps {
   value: number;
   warning?: number;

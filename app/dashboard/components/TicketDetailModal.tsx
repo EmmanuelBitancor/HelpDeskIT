@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { ticketStatusStyles, priorityStyles } from "@/lib/styles";
+import { formatDate, priorityLabels } from "@/lib/utils";
 import type { Ticket, TicketHistoryEntry } from "../../types/ticket";
-import { toHistoryEntry } from "../../types/mappers";
 
 interface TicketDetailModalProps {
   isOpen: boolean;
@@ -10,44 +11,12 @@ interface TicketDetailModalProps {
   ticket: Ticket | null;
 }
 
-const priorityLabels: Record<Ticket["priority"], string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  critical: "Critical",
-};
-
 const statusLabels: Record<Ticket["status"], string> = {
   open: "Open",
   in_progress: "In Progress",
   resolved: "Resolved",
   closed: "Closed",
 };
-
-const statusColors: Record<Ticket["status"], string> = {
-  open: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-  in_progress:
-    "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-  resolved:
-    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
-  closed: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
-};
-
-const priorityColors: Record<Ticket["priority"], string> = {
-  low: "text-zinc-500",
-  medium: "text-amber-600",
-  high: "text-orange-600",
-  critical: "text-red-600",
-};
-
-function formatDate(dateString: string) {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 export default function TicketDetailModal({
   isOpen,
@@ -171,12 +140,12 @@ export default function TicketDetailModal({
                 {ticket.id}
               </span>
               <span
-                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[ticket.status]}`}
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${ticketStatusStyles[ticket.status]}`}
               >
                 {statusLabels[ticket.status]}
               </span>
               <span
-                className={`text-xs font-medium ${priorityColors[ticket.priority]}`}
+                className={`text-xs font-medium ${priorityStyles[ticket.priority]}`}
               >
                 {priorityLabels[ticket.priority]}
               </span>
@@ -271,7 +240,7 @@ export default function TicketDetailModal({
                           {new Date(entry.at).toLocaleString()}
                         </span>
                         <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[entry.status]}`}
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${ticketStatusStyles[entry.status]}`}
                         >
                           {statusLabels[entry.status]}
                         </span>

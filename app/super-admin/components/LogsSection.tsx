@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { usePagination, Pagination } from "@/components/Pagination";
+import { logLevelStyles } from "@/lib/styles";
+import { formatTimestamp } from "@/lib/utils";
 import type { SystemLog, LogLevel } from "../types";
-import { logLevelStyles, formatTimestamp } from "../helpers";
 
 interface LogsSectionProps {
   logs: SystemLog[];

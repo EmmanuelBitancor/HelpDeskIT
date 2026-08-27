@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useCallback } from "react";
+import { formatDate } from "@/lib/utils";
 import { Ticket, SupportStaff } from "../types";
 
 interface TicketDetailModalProps {
@@ -23,15 +24,6 @@ const statusOrder: Ticket["status"][] = [
   "resolved",
   "closed",
 ];
-
-function formatDate(dateString: string) {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 function formatTime(dateString: string) {
   const date = new Date(dateString);

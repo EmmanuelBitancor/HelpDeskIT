@@ -13,42 +13,12 @@ import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity";
 import { getCachedData, setCachedData } from "@/lib/cache";
 import { usePagination, Pagination } from "@/components/Pagination";
-import type { Ticket, TicketStatus, TicketPriority, SupportStaff } from "../types/ticket";
+import { ticketStatusStyles, priorityStyles } from "@/lib/styles";
+import { formatDate, priorityLabels } from "@/lib/utils";
+import type { Ticket, TicketPriority, SupportStaff } from "../types/ticket";
 import { toAdminTicket as toTicket } from "../types/mappers";
 
 const supabase = createClient();
-
-const statusStyles: Record<TicketStatus, string> = {
-  open: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-  in_progress:
-    "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-  resolved:
-    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
-  closed: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
-};
-
-const priorityStyles: Record<TicketPriority, string> = {
-  low: "text-zinc-500",
-  medium: "text-amber-600",
-  high: "text-orange-600",
-  critical: "text-red-600",
-};
-
-const priorityLabels: Record<TicketPriority, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  critical: "Critical",
-};
-
-function formatDate(dateString: string) {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 export default function DashboardPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -587,7 +557,7 @@ if (ticketsError || staffError) {
                             {ticket.id}
                           </span>
                           <span
-                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusStyles[ticket.status]}`}
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${ticketStatusStyles[ticket.status]}`}
                           >
                             {ticket.status.replace("_", " ")}
                           </span>
