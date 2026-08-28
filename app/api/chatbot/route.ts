@@ -2,9 +2,90 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/app/api/_lib/auth";
 import { checkRateLimit, getClientIdentifier } from "@/app/api/_lib/ratelimit";
 
-// Vercel serverless function timeout — the Gemini fallback matrix can
+// Vercel serverless function timeout — the fallback matrix can
 // run up to ~25 s, so we need headroom beyond the default 10 s.
 export const maxDuration = 30;
+
+const GEMINI_API_VERSIONS = ["v1beta", "v1"];
+const NVIDIA_CHAT_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
+const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
+
+interface ChatMessage {
+  role: string;
+  parts: { text: string }[];
+}
+
+interface NvidiaMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+function toNvidiaMessages(contents: ChatMessage[]): NvidiaMessage[] {
+  const messages: NvidiaMessage[] = [];
+  for (const msg of contents) {
+    if (msg.role === "user" || msg.role === "assistant" || msg.role === "system") {
+      const text = msg.parts.map((p) => p.text).join("");
+      if (text) messages.push({ role: msg.role, content: text });
+    }
+  }
+  return messages;
+}
+
+async function callNvidia(
+  apiKey: string,
+  messages: NvidiaMessage[],
+  signal: AbortSignal,
+): Promise<Response> {
+  const body = {
+    model: "meta/llama-3.3-70b-instruct",
+    messages,
+    temperature: 0.7,
+    max_tokens: 1024,
+  };
+
+  return fetch(NVIDIA_CHAT_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    signal,
+    body: JSON.stringify(body),
+  });
+}
+
+function extractNvidiaReply(data: unknown): string {
+  const parsed = data as { choices?: { message?: { content?: string } }[] };
+  return parsed.choices?.[0]?.message?.content || "";
+}
+
+async function callOpenAI(
+  apiKey: string,
+  messages: NvidiaMessage[],
+  signal: AbortSignal,
+): Promise<Response> {
+  const body = {
+    model: "gpt-4o-mini",
+    messages,
+    temperature: 0.7,
+    max_tokens: 1024,
+  };
+
+  return fetch(OPENAI_CHAT_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    signal,
+    body: JSON.stringify(body),
+  });
+}
+
+function extractOpenAIReply(data: unknown): string {
+  const parsed = data as { choices?: { message?: { content?: string } }[] };
+  return parsed.choices?.[0]?.message?.content || "";
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,20 +116,27 @@ export async function POST(request: NextRequest) {
     }
 
     const apiKey = process.env.GEMINI_API_KEY_CHATBOT;
-    if (!apiKey) {
+    const apiKeyBackup = process.env.GEMINI_API_KEY_BACKUP;
+    const nvidiaApiKey = process.env.NVIDIA_API_KEY;
+    const openAiApiKey = process.env.OPENAI_API_KEY;
+    const apiKeys = [apiKey, apiKeyBackup].filter((key): key is string => Boolean(key));
+    if (apiKeys.length === 0 && !nvidiaApiKey && !openAiApiKey) {
       return NextResponse.json({ error: "Chatbot not configured" }, { status: 500 });
     }
 
     const systemPrompt =
-      "You are HelpBot, an IT support assistant for HelpDeskIT. " +
-      "You MUST ONLY respond to questions related to IT support, technology issues, hardware, software, networking, " +
-      "passwords, VPN, email, printers, devices, systems administration, cybersecurity, and similar technical problems. " +
-      "If a user asks about non-IT topics, politely decline and ask them to ask about IT-related issues instead. " +
-      "Format your response in clean, readable text: " +
-      "- Use simple bullet points with hyphens (-) instead of asterisks (*) " +
-      "- When listing steps or items, put each one on its own line " +
-      "- Do not use bold (**text**) or italics (*text**) markdown formatting " +
-      "- Keep responses concise, helpful, and professional.";
+      "You are HelpBot, a friendly IT support assistant for HelpDeskIT. " +
+      "You ONLY help with technical issues related to: " +
+      "PCs, desktops, laptops, notebooks, smartphones, cellphones, tablets, WiFi, routers, networking, " +
+      "software installation, operating systems (Windows, macOS, Linux, iOS, Android), " +
+      "hardware problems, drivers, peripherals, printers, email, VPN, passwords, cybersecurity, " +
+      "and IT troubleshooting in general. " +
+      "If a user asks about ANY non-technical topic — including personal advice, entertainment, " +
+      "politics, news, health, relationships, cooking, sports, or anything outside IT — " +
+      "politely decline and say you are only here for IT support. " +
+      "Be conversational, helpful, and encouraging. Use simple language. " +
+      "Format responses as clean text with short bullet points using hyphens (-). " +
+      "Do not use bold, italics, or asterisks.";
 
     const contents: { role: string; parts: { text: string }[] }[] = [];
 
@@ -56,7 +144,7 @@ export async function POST(request: NextRequest) {
       const supportedRoles = new Set(["user", "assistant", "system"]);
       let totalTextSize = 0;
       for (const msg of history) {
-        if (contents.length >= 20) break;
+        if (contents.length >= 30) break;
         if (
           typeof msg === "object" &&
           msg !== null &&
@@ -65,7 +153,7 @@ export async function POST(request: NextRequest) {
           typeof msg.text === "string"
         ) {
           const text = msg.text;
-          if (totalTextSize + text.length > 10000) break;
+          if (totalTextSize + text.length > 15000) break;
           totalTextSize += text.length;
           contents.push({
             role: msg.role === "user" ? "user" : msg.role === "assistant" ? "model" : "user",
@@ -80,7 +168,7 @@ export async function POST(request: NextRequest) {
       parts: [{ text: message }],
     });
 
-    const models = (process.env.GEMINI_CHATBOT_MODELS || "gemini-2.5-flash,gemini-2.5-pro,gemini-2.0-flash")
+    const models = (process.env.GEMINI_CHATBOT_MODELS || "gemini-2.5-flash,gemini-3.5-flash,gemini-3.6-flash,gemini-3.7-flash")
       .split(",")
       .map((m) => m.trim())
       .filter(Boolean);
@@ -92,67 +180,143 @@ export async function POST(request: NextRequest) {
     const OVERALL_BUDGET_MS = 25_000;
     const deadline = Date.now() + OVERALL_BUDGET_MS;
     let deadlineReached = false;
-    let fatal = false;
+    let usedBackupKey = false;
 
-    for (const apiVersion of apiVersions) {
-      for (const model of models) {
-        const remaining = deadline - Date.now();
-        if (remaining <= 0) {
-          console.log("[chatbot] overall deadline reached, aborting fallback matrix");
-          deadlineReached = true;
-          break;
-        }
+    for (const apiKey of apiKeys) {
+      let tryNextKey = false;
 
-        const geminiUrl = `https://generativelanguage.googleapis.com/${apiVersion}/models/${model}:generateContent?key=${apiKey}`;
-        console.log(`[chatbot] trying ${apiVersion}/${model}`);
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), Math.min(10_000, remaining));
-
-        try {
-          response = await fetch(geminiUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            signal: controller.signal,
-            body: JSON.stringify({
-              contents,
-              systemInstruction: {
-                parts: [{ text: systemPrompt }],
-              },
-              generationConfig: {
-                temperature: 0.7,
-                maxOutputTokens: 512,
-              },
-            }),
-          });
-          clearTimeout(timeoutId);
-
-          if (response.ok) {
-            console.log(`[chatbot] success with ${apiVersion}/${model}`);
+      for (const apiVersion of apiVersions) {
+        for (const model of models) {
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) {
+            console.log("[chatbot] overall deadline reached, aborting fallback matrix");
+            deadlineReached = true;
             break;
           }
 
-          const errorData = await response.text();
-          console.error(`[chatbot] ${apiVersion}/${model} failed:`, response.status, errorData);
-          lastError = { status: response.status, body: errorData };
+          const geminiUrl = `https://generativelanguage.googleapis.com/${apiVersion}/models/${model}:generateContent?key=${apiKey}`;
+          console.log(`[chatbot] trying ${apiVersion}/${model}${apiKey !== apiKeys[0] ? " (backup key)" : ""}`);
 
-          if (response.status === 404) continue;
-          response = new Response(null, { status: response.status });
-          fatal = true;
-          break;
-        } catch (fetchError) {
-          clearTimeout(timeoutId);
-          console.error(`[chatbot] ${apiVersion}/${model} network error:`, fetchError);
-          lastError = { status: 500, body: String(fetchError) };
-          response = new Response(null, { status: 500 });
-          fatal = true;
-          break;
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), Math.min(7_000, remaining));
+
+          try {
+            response = await fetch(geminiUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              signal: controller.signal,
+              body: JSON.stringify({
+                contents,
+                systemInstruction: {
+                  parts: [{ text: systemPrompt }],
+                },
+              generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 1024,
+              },
+              }),
+            });
+            clearTimeout(timeoutId);
+
+            if (response.ok) {
+              console.log(`[chatbot] success with ${apiVersion}/${model}`);
+              usedBackupKey = apiKey !== apiKeys[0];
+              tryNextKey = false;
+              break;
+            }
+
+            const errorData = await response.text();
+            console.error(`[chatbot] ${apiVersion}/${model} failed:`, response.status, errorData);
+            lastError = { status: response.status, body: errorData };
+
+            if (response.status === 404) continue;
+            if (response.status === 401 || response.status === 403) {
+              console.log(`[chatbot] auth error, switching to next key...`);
+              tryNextKey = true;
+              break;
+            }
+
+            response = new Response(null, { status: response.status });
+            tryNextKey = false;
+            break;
+          } catch (fetchError) {
+            clearTimeout(timeoutId);
+            console.error(`[chatbot] ${apiVersion}/${model} network/timeout error:`, fetchError);
+            lastError = { status: 500, body: String(fetchError) };
+            response = new Response(null, { status: 500 });
+            // On timeout/network error, skip to the next model instead of
+            // retrying the same slow model on the next API version.
+            continue;
+          }
         }
+
+        if (response.ok || tryNextKey) break;
       }
 
-      if (deadlineReached || fatal || response.ok) break;
+      if (response.ok) break;
+    }
+
+    // NVIDIA fallback — tried only after all Gemini keys/models fail.
+    if (!response.ok && nvidiaApiKey) {
+      console.log("[chatbot] all Gemini models failed, trying NVIDIA...");
+      const remaining = deadline - Date.now();
+      if (remaining > 0) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), Math.min(7_000, remaining));
+
+        try {
+          response = await callNvidia(nvidiaApiKey, toNvidiaMessages(contents), controller.signal);
+          clearTimeout(timeoutId);
+
+          if (response.ok) {
+            console.log("[chatbot] success with NVIDIA");
+            usedBackupKey = true;
+          } else {
+            const errorData = await response.text();
+            console.error("[chatbot] NVIDIA failed:", response.status, errorData);
+            lastError = { status: response.status, body: errorData };
+            response = new Response(null, { status: response.status });
+          }
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          console.error("[chatbot] NVIDIA network/timeout error:", fetchError);
+          lastError = { status: 500, body: String(fetchError) };
+          response = new Response(null, { status: 500 });
+        }
+      }
+    }
+
+    // OpenAI fallback — tried last, with a tight 5s timeout to stay within
+    // the 10–20s response budget.
+    if (!response.ok && openAiApiKey) {
+      console.log("[chatbot] all Gemini/NVIDIA models failed, trying OpenAI...");
+      const remaining = deadline - Date.now();
+      if (remaining > 0) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), Math.min(5_000, remaining));
+
+        try {
+          response = await callOpenAI(openAiApiKey, toNvidiaMessages(contents), controller.signal);
+          clearTimeout(timeoutId);
+
+          if (response.ok) {
+            console.log("[chatbot] success with OpenAI");
+            usedBackupKey = true;
+          } else {
+            const errorData = await response.text();
+            console.error("[chatbot] OpenAI failed:", response.status, errorData);
+            lastError = { status: response.status, body: errorData };
+            response = new Response(null, { status: response.status });
+          }
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          console.error("[chatbot] OpenAI network/timeout error:", fetchError);
+          lastError = { status: 500, body: String(fetchError) };
+          response = new Response(null, { status: 500 });
+        }
+      }
     }
 
     if (!response.ok) {
@@ -191,10 +355,20 @@ export async function POST(request: NextRequest) {
       const body = lastError?.body ?? "Unknown error";
       console.error("[chatbot] all models failed, last error:", status, body);
       const upstreamError = status >= 500 ? "AI service unavailable" : "AI request failed";
+      let errorDetails = process.env.NODE_ENV === "development" ? body : undefined;
+      if (usedBackupKey) {
+        errorDetails = errorDetails ? `Backup key was also tried. ${errorDetails}` : "Backup key was also tried.";
+      }
+      if (nvidiaApiKey) {
+        errorDetails = errorDetails ? `NVIDIA fallback was also tried. ${errorDetails}` : "NVIDIA fallback was also tried.";
+      }
+      if (openAiApiKey) {
+        errorDetails = errorDetails ? `OpenAI fallback was also tried. ${errorDetails}` : "OpenAI fallback was also tried.";
+      }
       return NextResponse.json(
         {
           error: upstreamError,
-          details: process.env.NODE_ENV === "development" ? body : undefined,
+          details: errorDetails,
         },
         { status: status >= 500 ? 502 : status },
       );
@@ -202,6 +376,8 @@ export async function POST(request: NextRequest) {
 
     const data = await response.json();
     const botReply =
+      extractOpenAIReply(data) ||
+      extractNvidiaReply(data) ||
       data.candidates?.[0]?.content?.parts?.[0]?.text ||
       "I couldn't generate a response. Please try again.";
 

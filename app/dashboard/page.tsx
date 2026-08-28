@@ -5,6 +5,7 @@ import NewTicketModal from "./components/NewTicketModal";
 import TicketDetailModal from "./components/TicketDetailModal";
 import KnowledgeBase from "./components/KnowledgeBase";
 import SupportChatModal from "./components/SupportChatModal";
+import ProfileSettingsModal from "@/app/settings/components/ProfileSettingsModal";
 import { useAuth } from "@/context/AuthContext";
 import SignOutButton from "@/components/SignOutButton";
 import { DashboardSkeleton } from "@/components/skeleton";
@@ -41,7 +42,8 @@ export default function DashboardPage() {
       : "light";
   });
 
-  const { user, loading, signingOut } = useAuth();
+  const { user, loading, signingOut, refreshProfile } = useAuth();
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -374,9 +376,29 @@ if (ticketsError || staffError) {
                 )}
                 Theme
               </button>
-              <span className="hidden text-sm text-zinc-600 dark:text-zinc-400 sm:inline">
-                {user?.email ?? "user@company.com"}
-              </span>
+               <button
+                 onClick={() => setIsProfileOpen(true)}
+                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                 aria-label="Profile settings"
+               >
+                 <svg
+                   className="h-4 w-4"
+                   fill="none"
+                   stroke="currentColor"
+                   strokeWidth={2}
+                   viewBox="0 0 24 24"
+                 >
+                   <path
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     d="M9.536 14.083a2.25 2.25 0 003.847 0l5.5-5.5a2.25 2.25 0 10-3.182-3.182L9.536 8.292a2.25 2.25 0 000 3.182zM15 12l3-3m0 0l3 3m-3-3v9"
+                   />
+                 </svg>
+                 Profile Settings
+               </button>
+               <span className="hidden text-sm text-zinc-600 dark:text-zinc-400 sm:inline">
+                 {user?.email ?? "user@company.com"}
+               </span>
               <SignOutButton />
             </div>
           </div>
@@ -702,6 +724,18 @@ if (ticketsError || staffError) {
           }}
         />
       )}
+      <ProfileSettingsModal
+        isOpen={isProfileOpen}
+        onClose={() => {
+          setIsProfileOpen(false);
+          refreshProfile();
+        }}
+        initialName={user?.name ?? ""}
+        initialEmail={user?.email ?? ""}
+        onUpdated={() => {
+          refreshProfile();
+        }}
+      />
     </div>
   );
 }
