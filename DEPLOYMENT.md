@@ -103,6 +103,13 @@ After each deploy, in the Supabase dashboard:
 - The Gemini chatbot fallback matrix can run up to 25 seconds.
   `export const maxDuration = 30` in `app/api/chatbot/route.ts` prevents
   Vercel's 10s default timeout from cutting it off.
+- **Anonymous forgot-password flow**: `app/api/forgot-password/route.ts` and
+  `app/api/password-reset-request/route.ts` now query the `accounts` table
+  using the Supabase service role key. The original code used the anon-key
+  Supabase client, but RLS (enabled in migration 0001) only allows
+  `authenticated` callers to read the table — anonymous requests on the
+  public forgot-password endpoint would silently return "no account found",
+  so the reset email was never sent.
 
 ## 8. Smoke Test After Deploy
 1. Visit `/login` and sign in with a seeded account.
