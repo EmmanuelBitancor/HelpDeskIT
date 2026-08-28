@@ -1,5 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+
+function getServiceHeaders() {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  if (!serviceRoleKey || !supabaseUrl) {
+    return null;
+  }
+
+  return {
+    supabaseUrl,
+    headers: {
+      "Content-Type": "application/json",
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+    },
+  };
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,15 +29,33 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const supabase = await createClient();
+    const service = getServiceHeaders();
+    if (!service) {
+      return NextResponse.json(
+        { error: "Server not configured" },
+        { status: 500 }
+      );
+    }
 
-    const { data: resetRecord } = await supabase
-      .from("password_resets")
-      .select("*")
-      .eq("token", token.trim())
-      .eq("used", false)
-      .gt("expires_at", new Date().toISOString())
-      .maybeSingle();
+    // Query password_resets using service role to bypass RLS
+    const res = await fetch(
+      `${service.supabaseUrl}/rest/v1/password_resets?token=eq.${encodeURIComponent(token.trim())}&used=eq.false&expires_at=gt.${new Date().toISOString()}`,
+      {
+        method: "GET",
+        headers: service.headers,
+      }
+    );
+
+    if (!res.ok) {
+      console.error("Failed to verify reset token:", await res.text());
+      return NextResponse.json(
+        { error: "Internal server error" },
+        { status: 500 }
+      );
+    }
+
+    const records = await res.json();
+    const resetRecord = records?.[0];
 
     if (!resetRecord) {
       return NextResponse.json(
@@ -29,7 +64,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Token is valid — proceed with password reset.
     return NextResponse.json({ valid: true });
   } catch (error) {
     console.error("Reset password token verification error:", error);
@@ -59,15 +93,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = await createClient();
+    const service = getServiceHeaders();
+    if (!service) {
+      return NextResponse.json(
+        { error: "Server not configured" },
+        { status: 500 }
+      );
+    }
 
-    const { data: resetRecord } = await supabase
-      .from("password_resets")
-      .select("*")
-      .eq("token", token.trim())
-      .eq("used", false)
-      .gt("expires_at", new Date().toISOString())
-      .maybeSingle();
+    // Look up the reset record using service role
+    const res = await fetch(
+      `${service.supabaseUrl}/rest/v1/password_resets?token=eq.${encodeURIComponent(token.trim())}&used=eq.false&expires_at=gt.${new Date().toISOString()}`,
+      {
+        method: "GET",
+        headers: service.headers,
+      }
+    );
+
+    if (!res.ok) {
+      console.error("Failed to look up reset token:", await res.text());
+      return NextResponse.json(
+        { error: "Internal server error" },
+        { status: 500 }
+      );
+    }
+
+    const records = await res.json();
+    const resetRecord = records?.[0];
 
     if (!resetRecord) {
       return NextResponse.json(
@@ -77,25 +129,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Look up the auth user by email to reset their password.
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-    if (!serviceRoleKey || !supabaseUrl) {
-      return NextResponse.json(
-        { error: "Server not configured" },
-        { status: 500 }
-      );
-    }
-
     const userLookupRes = await fetch(
-      `${supabaseUrl}/auth/v1/admin/users?email=${encodeURIComponent(resetRecord.email)}`,
+      `${service.supabaseUrl}/auth/v1/admin/users?email=${encodeURIComponent(resetRecord.email)}`,
       {
         method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: serviceRoleKey,
-          Authorization: `Bearer ${serviceRoleKey}`,
-        },
+        headers: service.headers,
       }
     );
 
@@ -118,13 +156,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const updateRes = await fetch(`${supabaseUrl}/auth/v1/admin/users/${authUser.id}`, {
+    const updateRes = await fetch(`${service.supabaseUrl}/auth/v1/admin/users/${authUser.id}`, {
       method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
-      },
+      headers: service.headers,
       body: JSON.stringify({ password }),
     });
 
@@ -137,13 +171,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { error: consumeError } = await supabase
-      .from("password_resets")
-      .update({ used: true })
-      .eq("id", resetRecord.id);
+    // Mark the token as used
+    const consumeRes = await fetch(
+      `${service.supabaseUrl}/rest/v1/password_resets?id=eq.${resetRecord.id}`,
+      {
+        method: "PATCH",
+        headers: { ...service.headers, Prefer: "return=representation" },
+        body: JSON.stringify({ used: true }),
+      }
+    );
 
-    if (consumeError) {
-      console.error("Failed to consume password reset token:", consumeError);
+    if (!consumeRes.ok) {
+      console.error("Failed to consume password reset token:", await consumeRes.text());
     }
 
     return NextResponse.json({ success: true });

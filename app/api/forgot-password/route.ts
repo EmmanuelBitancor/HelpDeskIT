@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     const origin =
       process.env.NEXT_PUBLIC_SITE_URL ||
       (process.env.NODE_ENV !== "production"
-        ? request.headers.get("origin") || "http://localhost:3000"
+        ? request.headers.get("origin") || "https://helpdesk-nine-pi.vercel.app"
         : null);
 
     if (!origin) {

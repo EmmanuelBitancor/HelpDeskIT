@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -30,6 +31,7 @@ interface AuthContextValue {
     password: string,
   ) => Promise<{ ok: boolean; error?: string; role?: Role }>;
   signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -47,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   });
   const supabase = createClient();
+  const loadProfileRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     let loadId = 0;
@@ -76,6 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser((profile as Account) ?? null);
       setLoading(false);
     };
+    loadProfileRef.current = loadProfile;
 
     loadProfile();
 
@@ -197,8 +201,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const refreshProfile = async () => {
+    await loadProfileRef.current?.();
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, signingOut, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signingOut, signIn, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
