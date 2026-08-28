@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
       parts: [{ text: message }],
     });
 
-    const models = (process.env.GEMINI_CHATBOT_MODELS || "gemini-3.7-flash,gemini-3.6-flash")
+    const models = (process.env.GEMINI_CHATBOT_MODELS || "gemini-2.5-flash,gemini-2.5-pro,gemini-2.0-flash")
       .split(",")
       .map((m) => m.trim())
       .filter(Boolean);
