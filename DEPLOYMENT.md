@@ -83,10 +83,12 @@ After each deploy, in the Supabase dashboard:
 - **`next.config.ts`**: replaced the legacy `webpack` config (incompatible with
   Next 16's Turbopack default) with an empty `turbopack: {}` entry. Kept
   `reactCompiler: true` for production minification.
-- **`vercel.json`** *(new)*: sets a 30-second function timeout for API routes,
-  adds baseline security headers, and pins the deployment region to `iad1`
-  (US East) for lowest latency to the Supabase project. Update the region if
-  your Supabase project lives elsewhere.
+- **`vercel.json`** *(new)*: adds baseline security headers, CORS headers for
+  API routes, pins the deployment region to `iad1` (US East), and sets the
+  image `remotePatterns` to an empty array for explicit allow-listing.
+- **`app/api/chatbot/route.ts`**: adds `export const maxDuration = 30` so the
+  Gemini AI fallback matrix (up to ~25s) completes before Vercel's default
+  10s timeout.
 - **`.env.example`**: documents all required variables including the new
   `TRUSTED_PROXY_HOPS` setting needed for correct rate-limiting on Vercel.
 
@@ -98,8 +100,9 @@ After each deploy, in the Supabase dashboard:
 - The `proxy.ts` middleware runs on every request — keep the in-memory map
   bounded to avoid memory growth (already capped at 1000 entries in the
   API helper).
-- The Gemini chatbot fallback matrix can run up to 25 seconds; ensure the
-  function timeout in `vercel.json` stays at 30s for `app/api/chatbot`.
+- The Gemini chatbot fallback matrix can run up to 25 seconds.
+  `export const maxDuration = 30` in `app/api/chatbot/route.ts` prevents
+  Vercel's 10s default timeout from cutting it off.
 
 ## 8. Smoke Test After Deploy
 1. Visit `/login` and sign in with a seeded account.

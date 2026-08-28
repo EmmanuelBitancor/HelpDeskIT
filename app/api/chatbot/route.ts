@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/app/api/_lib/auth";
 import { checkRateLimit, getClientIdentifier } from "@/app/api/_lib/ratelimit";
 
+// Vercel serverless function timeout — the Gemini fallback matrix can
+// run up to ~25 s, so we need headroom beyond the default 10 s.
+export const maxDuration = 30;
+
 export async function POST(request: NextRequest) {
   try {
     const authResult = await requireAuth();
