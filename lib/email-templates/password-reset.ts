@@ -1,7 +1,7 @@
 import { getBaseHtml, getBaseText } from "./base";
 
 export function passwordResetEmail({ token, origin }: { email: string; token: string; origin: string }): { subject: string; html: string; text: string } {
-  const resetUrl = `${origin}/auth/reset-password?token=${token}`;
+  const resetUrl = `https://helpdesk-nine-pi.vercel.app/auth/reset-password?token=${token}`;
   const subject = "Reset your password - HelpDeskIT";
   const body = `
     <div class="icon-banner">
