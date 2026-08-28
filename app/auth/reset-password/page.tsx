@@ -1,30 +1,71 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { Suspense, useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
-export default function ResetPasswordPage() {
+function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(true);
 
-  const accessToken = searchParams.get("access_token");
-  const refreshToken = searchParams.get("refresh_token");
+  const MIN_PASSWORD_LENGTH = 8;
+  const token = searchParams.get("token");
 
-  if (!accessToken || !refreshToken) {
+  useEffect(() => {
+    const verifyToken = async () => {
+      if (!token) {
+        setLinkError("This password reset link is invalid or has expired. Please request a new one.");
+        setVerifying(false);
+        return;
+      }
+
+      try {
+        const res = await fetch(
+          `/api/reset-password?token=${encodeURIComponent(token)}`,
+          { method: "GET" }
+        );
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.error || "This password reset link is invalid or has expired. Please request a new one.");
+        }
+      } catch (err) {
+        setLinkError(err instanceof Error ? err.message : "This password reset link is invalid or has expired. Please request a new one.");
+      } finally {
+        setVerifying(false);
+      }
+    };
+
+    verifyToken();
+  }, [token]);
+
+  if (verifying) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+        <div className="w-full max-w-md text-center">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Verifying your reset link...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (linkError) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
         <div className="w-full max-w-md text-center">
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-            Invalid Link
+            Invalid or Expired Link
           </h1>
           <p className="mt-2 text-sm text-red-600 dark:text-red-400">
-            This password reset link is invalid or has expired.
+            {linkError}
           </p>
           <button
             onClick={() => router.replace("/")}
@@ -39,35 +80,45 @@ export default function ResetPasswordPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    setFormError(null);
     setLoading(true);
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match");
+      setFormError("The passwords you entered do not match. Please try again.");
       setLoading(false);
       return;
     }
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters");
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setFormError(`Your password must be at least ${MIN_PASSWORD_LENGTH} characters long.`);
+      setLoading(false);
+      return;
+    }
+
+    if (!token) {
+      setFormError("Missing reset token. Please use the link from your email.");
       setLoading(false);
       return;
     }
 
     try {
-      const supabase = createClient();
-
-      const { error } = await supabase.auth.updateUser({
-        password,
+      const res = await fetch("/api/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, password }),
       });
 
-      if (error) throw error;
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Something went wrong. Please try again or request a new reset link.");
+      }
 
       setSuccess(true);
       setTimeout(() => {
         router.replace("/");
       }, 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setFormError(err instanceof Error ? err.message : "Something went wrong. Please try again or request a new reset link.");
     } finally {
       setLoading(false);
     }
@@ -94,11 +145,11 @@ export default function ResetPasswordPage() {
               id="password"
               type="password"
               required
-              minLength={6}
+              minLength={MIN_PASSWORD_LENGTH}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Min. 6 characters"
+              placeholder={`Min. ${MIN_PASSWORD_LENGTH} characters`}
             />
           </div>
 
@@ -110,18 +161,18 @@ export default function ResetPasswordPage() {
               id="confirmPassword"
               type="password"
               required
-              minLength={6}
+              minLength={MIN_PASSWORD_LENGTH}
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Repeat new password"
+              placeholder={`Repeat new password`}
             />
           </div>
 
-          {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+          {formError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{formError}</p>}
           {success && (
             <p role="status" className="text-sm text-emerald-600 dark:text-emerald-400">
-              Password updated! Redirecting...
+              Your password has been updated! Redirecting you to the login page...
             </p>
           )}
 
@@ -130,10 +181,26 @@ export default function ResetPasswordPage() {
             disabled={loading || success}
             className="flex w-full justify-center rounded-lg bg-foreground px-4 py-2.5 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2 disabled:opacity-60"
           >
-            {loading ? "Updating..." : "Update Password"}
+            {loading ? "Updating your password..." : "Update Password"}
           </button>
         </form>
       </div>
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+          <div className="w-full max-w-md text-center">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading...</p>
+          </div>
+        </div>
+      }
+    >
+      <ResetPasswordForm />
+    </Suspense>
   );
 }

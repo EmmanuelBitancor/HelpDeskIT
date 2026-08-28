@@ -1,13 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { FORBIDDEN_ROUTE } from "@/context/authTypes";
 import SignOutButton from "@/components/SignOutButton";
 import { SuperAdminSkeleton, Skeleton } from "@/components/skeleton";
+import ForbiddenAccessModal from "@/components/ForbiddenAccessModal";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity";
+import { useNotifications } from "@/app/hooks/useNotifications";
+import { getCachedData, setCachedData } from "@/lib/cache";
+import { usePagination, Pagination } from "@/components/Pagination";
+import { statusStyles, roleStyles, ticketStatusStyles, priorityStyles, logLevelStyles } from "@/lib/styles";
+import { formatDate, formatTimestamp } from "@/lib/utils";
+import { toTicket, toSystemLog, toSystemHealth } from "./helpers";
 import ProfileSettingsModal from "../settings/components/ProfileSettingsModal";
 import ChatPanel from "../chat/components/ChatPanel";
 import {
@@ -25,45 +30,6 @@ import type { TicketStatus, TicketPriority } from "../types/ticket";
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 
 const supabase = createClient();
-
-function toTicket(row: Record<string, unknown>): Ticket {
-  const staff = row.support_staff as { name?: string } | null | undefined;
-  return {
-    id: String(row.id),
-    subject: String(row.subject ?? ""),
-    category: String(row.category ?? ""),
-    priority: (row.priority as TicketPriority) ?? "low",
-    status: (row.status as TicketStatus) ?? "open",
-    createdAt: String(row.created_at ?? ""),
-    updatedAt: String(row.updated_at ?? ""),
-    assignedAgent: staff?.name ? String(staff.name) : "Unassigned",
-    submittedBy: row.submitted_by ? String(row.submitted_by) : "—",
-  };
-}
-
-function toSystemLog(row: Record<string, unknown>): SystemLog {
-  return {
-    id: String(row.id),
-    level: (row.level as LogLevel) ?? "info",
-    message: String(row.message ?? ""),
-    source: String(row.source ?? ""),
-    timestamp: String(row.timestamp ?? ""),
-    meta: row.meta ? String(row.meta) : undefined,
-  };
-}
-
-function toSystemHealth(row: Record<string, unknown>): SystemHealth {
-  return {
-    cpu: Number(row.cpu ?? 0),
-    memory: Number(row.memory ?? 0),
-    dbLatency: Number(row.db_latency ?? 0),
-    apiResponseTime: Number(row.api_response_time ?? 0),
-    uptime: String(row.uptime ?? "—"),
-    activeConnections: Number(row.active_connections ?? 0),
-    errorRate: Number(row.error_rate ?? 0),
-    queueDepth: Number(row.queue_depth ?? 0),
-  };
-}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -99,8 +65,10 @@ interface Ticket {
   status: TicketStatus;
   createdAt: string;
   updatedAt: string;
+  description: string;
+  assignedTo?: string;
   assignedAgent: string;
-  submittedBy: string;
+  submittedBy?: string;
 }
 
 interface SystemLog {
@@ -134,69 +102,6 @@ interface SystemHealth {
   activeConnections: number;
   errorRate: number;
   queueDepth: number;
-}
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
-const statusStyles: Record<UserStatus, string> = {
-  active:
-    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
-  suspended: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
-  pending:
-    "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-};
-
-const roleStyles: Record<UserRole, string> = {
-  superadmin: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
-  admin: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-  support: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
-  user: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
-};
-
-const ticketStatusStyles: Record<TicketStatus, string> = {
-  open: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-  in_progress:
-    "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-  resolved:
-    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
-  closed: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
-};
-
-const priorityStyles: Record<TicketPriority, string> = {
-  low: "text-zinc-500",
-  medium: "text-amber-600",
-  high: "text-orange-600",
-  critical: "text-red-600 font-semibold",
-};
-
-const logLevelStyles: Record<LogLevel, string> = {
-  info: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-  warn: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-  error: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
-  debug: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
-};
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatDate(dateString: string) {
-  if (dateString === "—") return "—";
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function formatTimestamp(ts: string) {
-  const d = new Date(ts);
-  return d.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -428,13 +333,17 @@ function UsersSection({
   users,
   onApproveUser,
   onToggleStatus,
+  onEditRole,
 }: {
   users: SystemUser[];
   onApproveUser: (id: string) => void;
   onToggleStatus: (id: string) => void;
+  onEditRole: (id: string, role: UserRole) => void;
 }) {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<UserRole | "all">("all");
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editingRole, setEditingRole] = useState<UserRole>("user");
 
   const filtered = users.filter((u) => {
     const matchRole = roleFilter === "all" || u.role === roleFilter;
@@ -443,6 +352,16 @@ function UsersSection({
       u.email.toLowerCase().includes(search.toLowerCase());
     return matchRole && matchSearch;
   });
+
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      if (a.role === "superadmin" && b.role !== "superadmin") return -1;
+      if (b.role === "superadmin" && a.role !== "superadmin") return 1;
+      return 0;
+    });
+  }, [filtered]);
+
+  const { paginatedItems: paginatedUsers, page: usersPage, totalPages: usersTotalPages, setPage: setUsersPage } = usePagination(sorted);
 
   return (
     <div className="space-y-4">
@@ -508,10 +427,12 @@ function UsersSection({
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {filtered.map((u) => (
+              {paginatedUsers.map((u) => (
                 <tr
                   key={u.id}
-                  className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+                  className={`transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40 ${
+                    u.role === "superadmin" ? "bg-violet-50/50 dark:bg-violet-900/10" : ""
+                  }`}
                 >
                   <td className="px-5 py-3">
                     <div>
@@ -545,42 +466,78 @@ function UsersSection({
                     {u.ticketCount}
                   </td>
                   <td className="px-5 py-3">
-                    <div className="flex items-center gap-2">
-                      {u.status === "pending" && (
-                        <button
-                          onClick={() => onApproveUser(u.id)}
-                          className="rounded-md bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300"
-                        >
-                          Approve
-                        </button>
-                      )}
-                      {u.status !== "pending" && (
-                        <button
-                          onClick={() => onToggleStatus(u.id)}
-                          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                            u.status === "active"
-                              ? "bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300"
-                              : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300"
-                          }`}
-                        >
-                          {u.status === "active" ? "Suspend" : "Reinstate"}
-                        </button>
-                      )}
-                      <button
-                        className="rounded-md border border-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                        disabled
-                        title="Coming soon"
-                      >
-                        Edit Role
-                      </button>
-                    </div>
+                    {u.role !== "superadmin" && (
+                      <div className="flex items-center gap-2">
+                        {u.status === "pending" && (
+                          <button
+                            onClick={() => onApproveUser(u.id)}
+                            className="rounded-md bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300"
+                          >
+                            Approve
+                          </button>
+                        )}
+                        {u.status !== "pending" && (
+                          <button
+                            onClick={() => onToggleStatus(u.id)}
+                            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                              u.status === "active"
+                                ? "bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300"
+                                : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300"
+                            }`}
+                          >
+                            {u.status === "active" ? "Suspend" : "Reinstate"}
+                          </button>
+                        )}
+                        {editingUserId === u.id ? (
+                          <select
+                            value={editingRole}
+                            onChange={(e) => setEditingRole(e.target.value as UserRole)}
+                            onBlur={() => {
+                              if (editingUserId) {
+                                onEditRole(editingUserId, editingRole);
+                                setEditingUserId(null);
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                if (editingUserId) {
+                                  onEditRole(editingUserId, editingRole);
+                                  setEditingUserId(null);
+                                }
+                              }
+                              if (e.key === "Escape") {
+                                setEditingUserId(null);
+                              }
+                            }}
+                            autoFocus
+                            className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-foreground outline-none focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800"
+                          >
+                            <option value="user">User</option>
+                            <option value="support">Support</option>
+                            <option value="admin">Admin</option>
+                            <option value="superadmin">Superadmin</option>
+                          </select>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setEditingUserId(u.id);
+                              setEditingRole(u.role);
+                            }}
+                            className="rounded-md border border-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                          >
+                            Edit Role
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <Pagination page={usersPage} totalPages={usersTotalPages} onPageChange={setUsersPage} />
         </div>
-        {filtered.length === 0 && (
+        {sorted.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-zinc-400">
             <p className="text-sm">No users match your filters.</p>
           </div>
@@ -590,13 +547,20 @@ function UsersSection({
   );
 }
 
-function TicketsSection({ tickets }: { tickets: Ticket[] }) {
+function TicketsSection({ tickets, staffList, onViewTicket, onReassign }: {
+  tickets: Ticket[];
+  staffList: Array<{ id: string; name: string; email: string; role: string; avatar: string; active: boolean }>;
+  onViewTicket: (ticket: Ticket) => void;
+  onReassign: (ticketId: string, staffId: string) => void;
+}) {
   const [filter, setFilter] = useState<TicketStatus | "all">("all");
 
   const filtered =
     filter === "all"
       ? tickets
       : tickets.filter((t) => t.status === filter);
+
+  const { paginatedItems: paginatedTickets, page: ticketsPage, totalPages: ticketsTotalPages, setPage: setTicketsPage } = usePagination(filtered);
 
   return (
     <div className="space-y-4">
@@ -620,7 +584,7 @@ function TicketsSection({ tickets }: { tickets: Ticket[] }) {
       </div>
 
       <div className="space-y-3">
-        {filtered.map((ticket) => (
+        {paginatedTickets.map((ticket) => (
           <div
             key={ticket.id}
             className="rounded-xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
@@ -656,17 +620,10 @@ function TicketsSection({ tickets }: { tickets: Ticket[] }) {
                 </div>
               </div>
               <div className="flex gap-2">
+                <ReassignButton ticket={ticket} staffList={staffList} onReassign={onReassign} />
                 <button
+                  onClick={() => onViewTicket(ticket)}
                   className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                  disabled
-                  title="Coming soon"
-                >
-                  Reassign
-                </button>
-                <button
-                  className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                  disabled
-                  title="Coming soon"
                 >
                   View
                 </button>
@@ -675,6 +632,8 @@ function TicketsSection({ tickets }: { tickets: Ticket[] }) {
           </div>
         ))}
       </div>
+
+      <Pagination page={ticketsPage} totalPages={ticketsTotalPages} onPageChange={setTicketsPage} />
 
       {filtered.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-zinc-300 py-16 dark:border-zinc-700">
@@ -687,13 +646,102 @@ function TicketsSection({ tickets }: { tickets: Ticket[] }) {
   );
 }
 
+function ReassignButton({ ticket, staffList, onReassign }: {
+  ticket: Ticket;
+  staffList: Array<{ id: string; name: string; email: string; role: string; avatar: string; active: boolean }>;
+  onReassign: (ticketId: string, staffId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const activeStaff = staffList.filter((s) => s.active);
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((prev) => !prev)}
+        className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+      >
+        Reassign
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-[55]" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-[60] mt-1 w-56 rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            <div className="px-3 py-2 text-xs font-medium text-zinc-500 dark:text-zinc-400 border-b border-zinc-100 dark:border-zinc-800">
+              Assign to
+            </div>
+            <div className="max-h-48 overflow-y-auto py-1">
+              <button
+                onClick={() => {
+                  onReassign(ticket.id, "");
+                  setOpen(false);
+                }}
+                className="flex w-full items-center px-3 py-2 text-left text-xs text-zinc-600 transition-colors hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              >
+                Unassigned
+              </button>
+              {activeStaff.map((staff) => (
+                <button
+                  key={staff.id}
+                  onClick={() => {
+                    onReassign(ticket.id, staff.id);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800 ${
+                    ticket.assignedTo === staff.id
+                      ? "text-foreground font-medium"
+                      : "text-zinc-600 dark:text-zinc-400"
+                  }`}
+                >
+                  <span
+                    className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold text-white ${
+                      staff.avatar ? "bg-zinc-400" : "bg-zinc-500"
+                    }`}
+                  >
+                    {staff.name.charAt(0)}
+                  </span>
+                  {staff.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ActivitySection({ activities }: { activities: ActivityLog[] }) {
   const [filter, setFilter] = useState<string>("all");
 
   const filtered =
     filter === "all" ? activities : activities.filter((a) => a.action === filter);
 
-  const uniqueActions = Array.from(new Set(activities.map((a) => a.action)));
+  const { paginatedItems: paginatedActivities, page: activitiesPage, totalPages: activitiesTotalPages, setPage: setActivitiesPage } = usePagination(filtered);
+
+  const ALLOWED_ACTIONS = new Set([
+    "login",
+    "login_failed",
+    "logout",
+    "user_approved",
+    "user_status_changed",
+    "user_role_changed",
+    "user_created",
+    "staff_created",
+    "staff_updated",
+    "staff_status_changed",
+    "staff_deleted",
+    "ticket_created",
+    "ticket_updated",
+    "ticket_assigned",
+  ]);
+
+  const uniqueActions = Array.from(
+    new Set(
+      activities
+        .map((a) => a.action)
+        .filter((action) => ALLOWED_ACTIONS.has(action))
+    )
+  );
 
   return (
     <div className="space-y-4">
@@ -725,7 +773,7 @@ function ActivitySection({ activities }: { activities: ActivityLog[] }) {
 
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {filtered.map((log) => (
+          {paginatedActivities.map((log) => (
             <div key={log.id} className="flex flex-wrap items-start gap-3 px-5 py-3">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -756,6 +804,7 @@ function ActivitySection({ activities }: { activities: ActivityLog[] }) {
             </div>
           ))}
         </div>
+        <Pagination page={activitiesPage} totalPages={activitiesTotalPages} onPageChange={setActivitiesPage} />
         {filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-zinc-400">
             <p className="text-sm">No activity logs yet.</p>
@@ -770,6 +819,7 @@ function SessionsSection() {
   const [sessions, setSessions] = useState<
     Array<{
       id: string;
+      user_id: string;
       user_email: string;
       user_name: string;
       user_role: string;
@@ -780,6 +830,10 @@ function SessionsSection() {
   >([]);
   const [loading, setLoading] = useState(true);
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [revokingAll, setRevokingAll] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const { paginatedItems: paginatedSessions, page: sessionsPage, totalPages: sessionsTotalPages, setPage: setSessionsPage } = usePagination(sessions);
 
   useEffect(() => {
     let active = true;
@@ -787,6 +841,10 @@ function SessionsSection() {
       try {
         const res = await fetch("/api/sessions");
         const data = await res.json();
+           if (!res.ok) {
+          if (active) setError(data.error || "We couldn't load the active sessions. Please check your connection and try again.");
+          return;
+        }
         if (active && data.sessions) setSessions(data.sessions);
       } catch {
         // ignore
@@ -801,12 +859,19 @@ function SessionsSection() {
 
   const revokeSession = async (sessionId: string) => {
     setRevoking(sessionId);
+    setError(null);
     try {
-      await fetch("/api/sessions", {
+      const res = await fetch("/api/sessions", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: sessionId }),
       });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setError(data.error || "Failed to revoke session");
+        setRevoking(null);
+        return;
+      }
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
     } catch {
       // ignore
@@ -815,16 +880,25 @@ function SessionsSection() {
     }
   };
 
-  const revokeAllUserSessions = async (userEmail: string) => {
+  const revokeAllUserSessions = async (userId: string) => {
+    setRevokingAll(userId);
+    setError(null);
     try {
-      await fetch("/api/sessions", {
+      const res = await fetch("/api/sessions", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userEmail }),
+        body: JSON.stringify({ user_id: userId }),
       });
-      setSessions((prev) => prev.filter((s) => s.user_email !== userEmail));
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setError(data.error || "Failed to revoke sessions");
+        return;
+      }
+      setSessions((prev) => prev.filter((s) => s.user_id !== userId));
     } catch {
       // ignore
+    } finally {
+      setRevokingAll(null);
     }
   };
 
@@ -839,6 +913,11 @@ function SessionsSection() {
             Sessions stay active until the user logs out. You can revoke any session below.
           </p>
         </div>
+        {error && (
+          <div role="alert" className="px-5 py-3 text-sm text-red-600 dark:text-red-400">
+            {error}
+          </div>
+        )}
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {loading ? (
             <div className="space-y-3 p-4">
@@ -855,7 +934,7 @@ function SessionsSection() {
               No active sessions found.
             </div>
           ) : (
-            sessions.map((session) => (
+            paginatedSessions.map((session) => (
               <div
                 key={session.id}
                 className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"
@@ -880,17 +959,19 @@ function SessionsSection() {
                   >
                     {revoking === session.id ? "Revoking..." : "Revoke"}
                   </button>
-                  <button
-                    onClick={() => revokeAllUserSessions(session.user_email)}
-                    className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  >
-                    Revoke All
+                    <button
+                      onClick={() => revokeAllUserSessions(session.user_id)}
+                      disabled={revokingAll === session.user_id}
+                      className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 disabled:opacity-50"
+                    >
+                      {revokingAll === session.user_id ? "Revoking..." : "Revoke All"}
                   </button>
                 </div>
               </div>
             ))
           )}
         </div>
+        <Pagination page={sessionsPage} totalPages={sessionsTotalPages} onPageChange={setSessionsPage} />
       </div>
     </div>
   );
@@ -1057,6 +1138,8 @@ function LogsSection({ logs }: { logs: SystemLog[] }) {
       ? logs
       : logs.filter((l) => l.level === levelFilter);
 
+  const { paginatedItems: paginatedLogs, page: logsPage, totalPages: logsTotalPages, setPage: setLogsPage } = usePagination(filtered);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
@@ -1077,7 +1160,7 @@ function LogsSection({ logs }: { logs: SystemLog[] }) {
 
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {filtered.map((log) => (
+          {paginatedLogs.map((log) => (
             <div key={log.id} className="px-5 py-3">
               <div className="flex flex-wrap items-start gap-3">
                 <span
@@ -1107,6 +1190,7 @@ function LogsSection({ logs }: { logs: SystemLog[] }) {
             </div>
           ))}
         </div>
+        <Pagination page={logsPage} totalPages={logsTotalPages} onPageChange={setLogsPage} />
         {filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-zinc-400">
             <p className="text-sm">No logs for this level.</p>
@@ -1239,7 +1323,14 @@ function SettingsSection({ user, onOpenProfile }: { user: { name: string; email:
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function SuperAdminDashboard() {
-  const [activeSection, setActiveSection] = useState<NavSection>("overview");
+  const [activeSection, setActiveSection] = useState<NavSection>(() => {
+    if (typeof window === "undefined") return "overview";
+    const saved = localStorage.getItem("superadmin_active_section");
+    if (saved && ["overview", "users", "tickets", "activity", "sessions", "system", "logs", "settings"].includes(saved)) {
+      return saved as NavSection;
+    }
+    return "overview";
+  });
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const saved = localStorage.getItem("theme");
@@ -1258,17 +1349,33 @@ export default function SuperAdminDashboard() {
     errorRate: 0,
     queueDepth: 0,
   });
-  const [users, setUsers] = useState<SystemUser[]>([]);
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [logs, setLogs] = useState<SystemLog[]>([]);
-  const [activities, setActivities] = useState<ActivityLog[]>([]);
+  const [users, setUsers] = useState<SystemUser[]>(() => {
+    const cached = getCachedData<SystemUser[]>("superadmin_users");
+    return cached?.data || [];
+  });
+  const [tickets, setTickets] = useState<Ticket[]>(() => {
+    const cached = getCachedData<Ticket[]>("superadmin_tickets");
+    return cached?.data || [];
+  });
+  const [staffList, setStaffList] = useState<
+    Array<{ id: string; name: string; email: string; role: string; avatar: string; active: boolean }>
+  >([]);
+  const [logs, setLogs] = useState<SystemLog[]>(() => {
+    const cached = getCachedData<SystemLog[]>("superadmin_logs");
+    return cached?.data || [];
+  });
+  const [activities, setActivities] = useState<ActivityLog[]>(() => {
+    const cached = getCachedData<ActivityLog[]>("superadmin_activities");
+    return cached?.data || [];
+  });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const { unreadMessages } = useNotifications();
 
-  const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, loading, signingOut } = useAuth();
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -1278,162 +1385,240 @@ export default function SuperAdminDashboard() {
   }, [theme]);
 
   useEffect(() => {
-    if (!user || user.role !== "superadmin") return;
-    let active = true;
-    (async () => {
-      setLoadError(null);
-      const [healthRes, usersRes, ticketsRes, logsRes, activityRes] = await Promise.all([
-        supabase
-          .from("system_health")
-          .select("*")
-          .order("recorded_at", { ascending: false })
-          .limit(1),
-        fetch("/api/users").then((res) => res.json()),
-        supabase
-          .from("tickets")
-          .select("*, support_staff!left(name)")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("system_logs")
-          .select("*")
-          .order("timestamp", { ascending: false })
-          .limit(200),
-        supabase
-          .from("activity_logs")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(100),
-      ]);
-      if (!active) return;
-      const firstError =
-        healthRes.error ??
-        (usersRes.error && usersRes.error) ??
-        ticketsRes.error ??
-        logsRes.error ??
-        activityRes.error;
-      if (firstError) {
-        setLoadError(
-          typeof firstError === "string" ? firstError : firstError.message || "Failed to load"
-        );
+    if (typeof window !== "undefined") {
+      localStorage.setItem("superadmin_active_section", activeSection);
+    }
+  }, [activeSection]);
+
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ticketDialogRef = useRef<HTMLDivElement>(null);
+
+  const getFocusableElements = useCallback((root: HTMLElement | null) => {
+    if (!root) return [];
+    return Array.from(
+      root.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((el) => !el.hasAttribute("disabled"));
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!user || user.role !== "superadmin") {
+      fetch("/api/unauthorized-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "/super-admin",
+          reason: user ? `Insufficient role: ${user.role}` : "Not authenticated",
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        }),
+      }).catch(() => {});
+    }
+  }, [user, loading]);
+
+  useEffect(() => {
+    if (!selectedTicket || !ticketDialogRef.current) return;
+
+    const previousFocus = document.activeElement as HTMLElement;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSelectedTicket(null);
         return;
       }
-      if (healthRes.data?.length) setHealth(toSystemHealth(healthRes.data[0]));
-      if (usersRes.users) setUsers(usersRes.users);
-      else if (Array.isArray(usersRes)) setUsers(usersRes);
-      if (ticketsRes.data) setTickets(ticketsRes.data.map(toTicket));
-      if (logsRes.data) setLogs(logsRes.data.map(toSystemLog));
-      if (activityRes.data) setActivities(activityRes.data);
-    })();
-    return () => {
-      active = false;
+      if (e.key !== "Tab") return;
+
+      const focusable = getFocusableElements(ticketDialogRef.current);
+      if (!focusable.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first || !ticketDialogRef.current?.contains(document.activeElement)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last || !ticketDialogRef.current?.contains(document.activeElement)) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     };
-  }, [user]);
+
+    document.addEventListener("keydown", handleKeyDown);
+    ticketDialogRef.current.focus();
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previousFocus.focus();
+    };
+  }, [selectedTicket, getFocusableElements]);
 
   useEffect(() => {
     if (!user || user.role !== "superadmin") return;
     let mounted = true;
 
     const refresh = async () => {
-      const [healthRes, usersRes, ticketsRes, logsRes, activityRes] = await Promise.all([
-        supabase
-          .from("system_health")
-          .select("*")
-          .order("recorded_at", { ascending: false })
-          .limit(1),
-        fetch("/api/users").then((res) => res.json()),
-        supabase
-          .from("tickets")
-          .select("*, support_staff!left(name)")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("system_logs")
-          .select("*")
-          .order("timestamp", { ascending: false })
-          .limit(200),
-        supabase
-          .from("activity_logs")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(100),
-      ]);
+      try {
+        setLoadError(null);
+        const [healthRes, usersRes, ticketsRes, staffRes, logsRes, activityRes] = await Promise.all([
+          supabase
+            .from("system_health")
+            .select("*")
+            .order("recorded_at", { ascending: false })
+            .limit(1),
+          fetch("/api/users").then(async (res) => {
+            if (!res.ok) {
+              const text = await res.text();
+              throw new Error(text || `Users fetch failed: ${res.status}`);
+            }
+            return res.json();
+          }),
+          supabase
+            .from("tickets")
+            .select("*, support_staff!left(name)")
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("support_staff")
+            .select("*")
+            .order("name"),
+          supabase
+            .from("system_logs")
+            .select("*")
+            .order("timestamp", { ascending: false })
+            .limit(200),
+          supabase
+            .from("activity_logs")
+            .select("*")
+            .order("created_at", { ascending: false })
+            .limit(100),
+        ]);
 
-      if (!mounted) return;
-      const firstError =
-        healthRes.error ??
-        (usersRes.error && usersRes.error) ??
-        ticketsRes.error ??
-        logsRes.error ??
-        activityRes.error;
-      if (firstError) {
-        setLoadError(
-          typeof firstError === "string" ? firstError : firstError.message || "Failed to load"
-        );
-        return;
+        if (!mounted) return;
+        const firstError =
+          healthRes.error ??
+          (usersRes.error && usersRes.error) ??
+          ticketsRes.error ??
+          staffRes.error ??
+          logsRes.error ??
+          activityRes.error;
+        if (firstError) {
+          setLoadError(
+            typeof firstError === "string" ? firstError : firstError.message || "Failed to load"
+          );
+          return;
+        }
+        if (healthRes.data?.length) {
+          const health = toSystemHealth(healthRes.data[0]);
+          setHealth(health);
+          setCachedData("superadmin_health", health, 30_000);
+        }
+        if (usersRes.users) {
+          setUsers(usersRes.users);
+          setCachedData("superadmin_users", usersRes.users, 60_000);
+        } else if (Array.isArray(usersRes)) {
+          setUsers(usersRes);
+          setCachedData("superadmin_users", usersRes, 60_000);
+        }
+        if (ticketsRes.data) {
+          const tickets = ticketsRes.data.map(toTicket);
+          setTickets(tickets);
+          setCachedData("superadmin_tickets", tickets, 30_000);
+        }
+        if (staffRes.data) {
+          const staff = staffRes.data.map((row: Record<string, unknown>) => ({
+            id: String(row.id),
+            name: String(row.name ?? ""),
+            email: String(row.email ?? ""),
+            role: String(row.role ?? ""),
+            avatar: String(row.avatar ?? ""),
+            active: Boolean(row.active),
+          }));
+          setStaffList(staff);
+        }
+        if (logsRes.data) {
+          const logs = logsRes.data.map(toSystemLog);
+          setLogs(logs);
+          setCachedData("superadmin_logs", logs, 60_000);
+        }
+        if (activityRes.data) {
+          setActivities(activityRes.data);
+          setCachedData("superadmin_activities", activityRes.data, 30_000);
+        }
+      } catch (err) {
+        if (mounted) {
+          setLoadError(err instanceof Error ? err.message : "Failed to load data");
+        }
       }
-      if (healthRes.data?.length) setHealth(toSystemHealth(healthRes.data[0]));
-      if (usersRes.users) setUsers(usersRes.users);
-      else if (Array.isArray(usersRes)) setUsers(usersRes);
-      if (ticketsRes.data) setTickets(ticketsRes.data.map(toTicket));
-      if (logsRes.data) setLogs(logsRes.data.map(toSystemLog));
-      if (activityRes.data) setActivities(activityRes.data);
     };
 
     refresh();
 
-    const channels = [
-      supabase.channel("realtime-accounts").on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "accounts" },
-        () => {
-          refresh();
-        }
-      ),
-      supabase.channel("realtime-tickets").on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "tickets" },
-        () => {
-          refresh();
-        }
-      ),
-      supabase.channel("realtime-activity").on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "activity_logs" },
-        () => {
-          refresh();
-        }
-      ),
-      supabase.channel("realtime-logs").on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "system_logs" },
-        () => {
-          refresh();
-        }
-      ),
-      supabase.channel("realtime-health").on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "system_health" },
-        () => {
-          refresh();
-        }
-      ),
-    ];
+     const scheduleRefresh = () => {
+       if (debounceTimer.current) clearTimeout(debounceTimer.current);
+       debounceTimer.current = setTimeout(() => {
+         refresh();
+         debounceTimer.current = null;
+       }, 300);
+     };
 
-    channels.forEach((channel) => channel.subscribe());
+     const channels = [
+       supabase.channel("realtime-accounts").on(
+         "postgres_changes",
+         { event: "*", schema: "public", table: "accounts" },
+         scheduleRefresh
+       ),
+       supabase.channel("realtime-tickets").on(
+         "postgres_changes",
+         { event: "*", schema: "public", table: "tickets" },
+         scheduleRefresh
+       ),
+       supabase.channel("realtime-activity").on(
+         "postgres_changes",
+         { event: "*", schema: "public", table: "activity_logs" },
+         scheduleRefresh
+       ),
+       supabase.channel("realtime-logs").on(
+         "postgres_changes",
+         { event: "*", schema: "public", table: "system_logs" },
+         scheduleRefresh
+       ),
+       supabase.channel("realtime-health").on(
+         "postgres_changes",
+         { event: "*", schema: "public", table: "system_health" },
+         scheduleRefresh
+       ),
+     ];
 
-    return () => {
-      mounted = false;
-      channels.forEach((channel) => supabase.removeChannel(channel));
-    };
+     channels.forEach((channel) => channel.subscribe());
+
+     return () => {
+       mounted = false;
+       if (debounceTimer.current) clearTimeout(debounceTimer.current);
+       channels.forEach((channel) => supabase.removeChannel(channel));
+     };
   }, [user]);
 
   const handleApproveUser = async (id: string) => {
     setActionError(null);
-    const { error, count } = await supabase
+    const { error } = await supabase
       .from("accounts")
       .update({ status: "active" })
       .eq("id", id);
-    if (error || count !== 1) {
-      setActionError(error?.message ?? "Failed to approve user");
+    if (error) {
+      setActionError(error.message);
+      return;
+    }
+    const { data: verify } = await supabase
+      .from("accounts")
+      .select("status")
+      .eq("id", id)
+      .maybeSingle();
+    if (verify?.status !== "active") {
+      setActionError("Failed to approve user");
       return;
     }
     setUsers((prev) =>
@@ -1452,12 +1637,21 @@ export default function SuperAdminDashboard() {
     const current = users.find((u) => u.id === id);
     if (!current) return;
     const next = current.status === "active" ? "suspended" : "active";
-    const { error, count } = await supabase
+    const { error } = await supabase
       .from("accounts")
       .update({ status: next })
       .eq("id", id);
-    if (error || count !== 1) {
-      setActionError(error?.message ?? "Failed to update user status");
+    if (error) {
+      setActionError(error.message);
+      return;
+    }
+    const { data: verify } = await supabase
+      .from("accounts")
+      .select("status")
+      .eq("id", id)
+      .maybeSingle();
+    if (verify?.status !== next) {
+      setActionError("Failed to update user status");
       return;
     }
     setUsers((prev) =>
@@ -1468,6 +1662,78 @@ export default function SuperAdminDashboard() {
       target_type: "user",
       target_id: id,
       details: `Set user ${current.email} to ${next}`,
+    });
+  };
+
+  const handleEditRole = async (id: string, role: UserRole) => {
+    setActionError(null);
+    const current = users.find((u) => u.id === id);
+    if (!current || current.role === role) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("accounts")
+      .update({ role })
+      .eq("id", id);
+
+    if (error) {
+      setActionError(error.message);
+      return;
+    }
+
+    const { data: verify } = await supabase
+      .from("accounts")
+      .select("role")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (verify?.role !== role) {
+      setActionError("Failed to update user role");
+      return;
+    }
+
+    setUsers((prev) =>
+      prev.map((u) => (u.id === id ? { ...u, role } : u))
+    );
+    await logActivity({
+      action: "user_role_changed",
+      target_type: "user",
+      target_id: id,
+      details: `Changed ${current.email} role from ${current.role} to ${role}`,
+    });
+  };
+
+  const assignTicket = async (ticketId: string, staffId: string) => {
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from("tickets")
+      .update({ assigned_to: staffId || null, updated_at: now })
+      .eq("id", ticketId);
+    if (error) {
+      setActionError(error.message);
+      return;
+    }
+    setTickets((prev) =>
+      prev.map((t) =>
+        t.id === ticketId
+          ? { ...t, assignedTo: staffId || undefined, assignedAgent: staffId ? (staffList.find((s) => s.id === staffId)?.name ?? "Unassigned") : "Unassigned", updatedAt: now }
+          : t,
+      ),
+    );
+    setSelectedTicket((prev) =>
+      prev && prev.id === ticketId
+        ? { ...prev, assignedTo: staffId || undefined, assignedAgent: staffId ? (staffList.find((s) => s.id === staffId)?.name ?? "Unassigned") : "Unassigned", updatedAt: now }
+        : prev,
+    );
+    const staff = staffList.find((s) => s.id === staffId);
+    await logActivity({
+      action: "ticket_assigned",
+      target_type: "ticket",
+      target_id: ticketId,
+      details: staff
+        ? `Assigned to ${staff.name}`
+        : "Unassigned from staff",
     });
   };
 
@@ -1571,26 +1837,27 @@ export default function SuperAdminDashboard() {
     settings: "System Settings",
   };
 
-  useEffect(() => {
-    if (loading) return;
-    if (!user) {
-      router.replace("/");
-    } else if (user.role !== "superadmin") {
-      router.replace(FORBIDDEN_ROUTE);
-    }
-  }, [user, loading, router]);
-
-  if (loading) return <SuperAdminSkeleton />;
+if (loading) return <SuperAdminSkeleton />;
   if (!user || user.role !== "superadmin") {
-    return <SuperAdminSkeleton />;
+    if (signingOut) return null;
+    return (
+      <>
+        <SuperAdminSkeleton />
+        <ForbiddenAccessModal
+          isOpen
+          onClose={() => {}}
+          attemptedPath="/super-admin"
+        />
+      </>
+    );
   }
 
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-zinc-200 dark:border-zinc-800">
+      <header className="sticky top-0 z-50 border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 py-2">
+          <div className="flex min-h-16 flex-nowrap items-center justify-between gap-2 py-2">
             <div className="flex items-center gap-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground text-background">
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -1648,8 +1915,13 @@ export default function SuperAdminDashboard() {
               </button>
               <button
                 onClick={() => setIsChatOpen(true)}
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="relative inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
+                {unreadMessages > 0 && (
+                  <span className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white">
+                    {unreadMessages > 9 ? "9+" : unreadMessages}
+                  </span>
+                )}
                 <svg
                   className="h-4 w-4"
                   fill="none"
@@ -1688,9 +1960,9 @@ export default function SuperAdminDashboard() {
       )}
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex gap-8 py-8">
+        <div className="flex gap-8 pt-8 items-start">
           {/* Sidebar Nav */}
-          <aside className="hidden w-48 shrink-0 lg:block">
+          <aside className="hidden w-48 shrink-0 lg:block sticky top-20 h-[calc(100vh-5rem)] overflow-y-auto">
             <nav className="space-y-1">
               {navItems.map(({ key, label, icon }) => (
                 <button
@@ -1734,12 +2006,12 @@ export default function SuperAdminDashboard() {
                 >
                   {label}
                 </button>
-              ))}
-            </div>
-          </div>
+          ))}
+        </div>
+      </div>
 
           {/* Main Content */}
-          <main className="min-w-0 flex-1">
+          <main className="min-w-0 flex-1 pb-8">
             <h2 className="mb-6 text-xl font-semibold text-foreground">
               {sectionTitles[activeSection]}
             </h2>
@@ -1756,9 +2028,17 @@ export default function SuperAdminDashboard() {
                 users={users}
                 onApproveUser={handleApproveUser}
                 onToggleStatus={handleToggleStatus}
+                onEditRole={handleEditRole}
               />
             )}
-            {activeSection === "tickets" && <TicketsSection tickets={tickets} />}
+            {activeSection === "tickets" && (
+              <TicketsSection
+                tickets={tickets}
+                staffList={staffList}
+                onViewTicket={setSelectedTicket}
+                onReassign={assignTicket}
+              />
+            )}
             {activeSection === "activity" && <ActivitySection activities={activities} />}
             {activeSection === "sessions" && <SessionsSection />}
             {activeSection === "system" && <SystemSection health={health} />}
@@ -1805,20 +2085,99 @@ export default function SuperAdminDashboard() {
                   .in("email", emails)
               : { data: [] as Array<{ id: string; email: string }> };
             const staffAccountMap = new Map((staffAccounts || []).map((a) => [a.email, a.id]));
-            const mappedStaff = (staff || []).map((s) => ({
-              id: staffAccountMap.get(s.email) || s.id,
-              name: s.name,
-              email: s.email,
-              role: s.role,
-            }));
-            return [
-              ...(admins || []),
-              ...mappedStaff,
-            ];
+            const mappedStaff = (staff || [])
+              .filter((s) => staffAccountMap.has(s.email))
+              .map((s) => ({
+                id: staffAccountMap.get(s.email)!,
+                name: s.name,
+                email: s.email,
+                role: s.role,
+              }));
+            const recipientMap = new Map<string, { id: string; name: string; email: string; role: string }>();
+            for (const admin of admins || []) {
+              recipientMap.set(admin.id, admin);
+            }
+            for (const staffMember of mappedStaff) {
+              recipientMap.set(staffMember.id, staffMember);
+            }
+            return Array.from(recipientMap.values());
           }}
           title="Messages"
           onClose={() => setIsChatOpen(false)}
         />
+      )}
+      {selectedTicket && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setSelectedTicket(null)}
+        >
+          <div
+            ref={ticketDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="superAdminTicketDetailTitle"
+            tabIndex={-1}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
+          >
+            <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
+              <h3 id="superAdminTicketDetailTitle" className="text-lg font-semibold text-foreground">
+                Ticket {selectedTicket.id}
+              </h3>
+              <button
+                onClick={() => setSelectedTicket(null)}
+                className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+                aria-label="Close"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="max-h-[70vh] overflow-y-auto space-y-4 p-6">
+              <div>
+                <h4 className="text-sm font-semibold text-foreground">{selectedTicket.subject}</h4>
+                <p className="mt-2 whitespace-pre-line text-sm text-zinc-600 dark:text-zinc-400">
+                  {selectedTicket.description.replace(/\s*\|\s*/g, '\n')}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Category</p>
+                  <p className="mt-1 text-sm text-foreground">{selectedTicket.category}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Priority</p>
+                  <p className={`mt-1 text-sm font-medium ${priorityStyles[selectedTicket.priority]}`}>
+                    {selectedTicket.priority}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Status</p>
+                  <span className={`mt-1 inline-flex items-center rounded-full px-2.5 py-1 text-sm font-medium ${ticketStatusStyles[selectedTicket.status]}`}>
+                    {selectedTicket.status.replace("_", " ")}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Assigned To</p>
+                  <p className="mt-1 text-sm text-foreground">{selectedTicket.assignedAgent}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Submitted By</p>
+                  <p className="mt-1 text-sm text-foreground">{selectedTicket.submittedBy}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Created</p>
+                  <p className="mt-1 text-sm text-foreground">{formatDate(selectedTicket.createdAt)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Updated</p>
+                  <p className="mt-1 text-sm text-foreground">{formatDate(selectedTicket.updatedAt)}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

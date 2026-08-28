@@ -1,192 +1,138 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import TicketDetailModal from "./components/TicketDetailModal";
 import AddUserModal from "./components/AddUserModal";
 import { Ticket, SupportStaff, TicketStatus, TicketHistoryEntry } from "./types";
 import { toStaff, toHistoryEntry, toSupportTicket } from "../types/mappers";
 import { useAuth } from "@/context/AuthContext";
-import { FORBIDDEN_ROUTE } from "@/context/authTypes";
 import SignOutButton from "@/components/SignOutButton";
 import { SupportSkeleton } from "@/components/skeleton";
+import ForbiddenAccessModal from "@/components/ForbiddenAccessModal";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity";
+import { useNotifications } from "@/app/hooks/useNotifications";
+import { getCachedData, setCachedData } from "@/lib/cache";
+import { usePagination, Pagination } from "@/components/Pagination";
+import { ticketStatusStyles, priorityStyles } from "@/lib/styles";
+import { formatDate, getAvatarColor, priorityLabels } from "@/lib/utils";
 import ProfileSettingsModal from "../settings/components/ProfileSettingsModal";
 import ForgotPasswordModal from "../settings/components/ForgotPasswordModal";
 import ChatPanel from "../chat/components/ChatPanel";
 
 const supabase = createClient();
 
-const statusStyles: Record<TicketStatus, string> = {
-  open: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-  in_progress:
-    "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-  resolved:
-    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
-  closed: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
-};
-
-const priorityStyles: Record<string, string> = {
-  low: "text-zinc-500",
-  medium: "text-amber-600",
-  high: "text-orange-600",
-  critical: "text-red-600",
-};
-
-const priorityLabels: Record<string, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  critical: "Critical",
-};
-
-function formatDate(dateString: string) {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function getAvatarColor(name: string) {
-  const colors = [
-    "bg-blue-500",
-    "bg-emerald-500",
-    "bg-amber-500",
-    "bg-purple-500",
-    "bg-pink-500",
-    "bg-indigo-500",
-  ];
-  const index = name
-    .split("")
-    .reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return colors[index % colors.length];
-}
-
 export default function SupportDashboard() {
-  const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, loading, signingOut } = useAuth();
+  const { unreadMessages } = useNotifications();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [staffList, setStaffList] = useState<SupportStaff[]>([]);
   const [isLoadingStaff, setIsLoadingStaff] = useState(true);
+  const [resolvedStaffId, setResolvedStaffId] = useState<string | null>(null);
+  const ticketChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const refreshRef = useRef<() => Promise<SupportStaff | null>>(async () => null);
 
   const currentStaff = useMemo<SupportStaff | null>(
     () => (user ? staffList.find((s) => s.email === user.email) ?? null : null),
     [user, staffList],
   );
 
-  useEffect(() => {
+useEffect(() => {
     if (!user?.email) return;
-    let active = true;
-    (async () => {
-      try {
-        const { data: staffData } = await supabase
-          .from("support_staff")
-          .select("*")
-          .order("name");
-        if (!active || !staffData) return;
-        const staff = staffData.map(toStaff);
-        setStaffList(staff);
-        const me = staff.find((s) => s.email === user.email) ?? staff[0];
-        if (!me) return;
-        const { data: ticketsData } = await supabase
-          .from("tickets")
-          .select("*")
-          .eq("assigned_to", me.id)
-          .order("created_at", { ascending: false });
-        if (!active) return;
-        const ticketIds = (ticketsData ?? []).map((r) => String(r.id));
-        const { data: historyData } = ticketIds.length
-          ? await supabase
-              .from("ticket_history")
-              .select("*")
-              .in("ticket_id", ticketIds)
-              .order("at")
-          : { data: [] };
-        if (!active) return;
-        const byTicket = new Map<string, TicketHistoryEntry[]>();
-        (historyData ?? []).forEach((h) => {
-          const key = String(h.ticket_id);
-          const arr = byTicket.get(key) ?? [];
-          arr.push(toHistoryEntry(h));
-          byTicket.set(key, arr);
-        });
-        setTickets(
-          (ticketsData ?? []).map((r) =>
-            toSupportTicket(r, byTicket.get(String(r.id)) ?? []),
-          ),
-        );
-      } finally {
-        if (active) setIsLoadingStaff(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [user?.email]);
-
-  useEffect(() => {
     let mounted = true;
+    const channels: ReturnType<typeof supabase.channel>[] = [];
 
-    const refresh = async () => {
-      if (!user?.email) return;
+    const refresh = async (): Promise<SupportStaff | null> => {
+      if (!user?.email || !mounted) return null;
+
       try {
-        const [{ data: ticketsData }, { data: staffData }] = await Promise.all([
-          supabase
-            .from("tickets")
-            .select("*")
-            .order("created_at", { ascending: false }),
+        const [{ data: ticketsData, error: ticketsError }, { data: staffData, error: staffError }] = await Promise.all([
+          supabase.from("tickets").select("*").order("created_at", { ascending: false }),
           supabase.from("support_staff").select("*").order("name"),
         ]);
-        if (!mounted) return;
-        if (ticketsData) {
-          const byTicket = new Map<string, TicketHistoryEntry[]>();
-          for (const h of ticketsData) {
-            const key = String(h.id);
-            byTicket.set(key, []);
-          }
-          setTickets(
-            ticketsData.map((r) =>
-              toSupportTicket(r, byTicket.get(String(r.id)) ?? [])
-            ),
-          );
+        if (!mounted) return null;
+        if (ticketsError || staffError) {
+          console.error("Support data load error:", ticketsError || staffError);
+          setIsLoadingStaff(false);
+          return null;
         }
-        if (staffData) setStaffList(staffData.map((r) => toStaff(r)));
+        let currentMe: SupportStaff | null = null;
+        if (staffData) {
+          const staff = staffData.map(toStaff);
+          setStaffList(staff);
+          currentMe = staff.find((s) => s.email === user.email) ?? null;
+          setResolvedStaffId(currentMe?.id ?? null);
+        }
+        const assignedTo = currentMe?.id;
+        const assignedTickets = assignedTo
+          ? ticketsData?.filter((t) => t.assigned_to === assignedTo)
+          : ticketsData;
+        const byTicket = new Map<string, TicketHistoryEntry[]>();
+        if (assignedTickets && assignedTickets.length > 0) {
+          const ticketIds = assignedTickets.map((r) => String(r.id));
+          const { data: history } = await supabase
+            .from("ticket_history")
+            .select("*")
+            .in("ticket_id", ticketIds)
+            .order("at");
+          for (const h of history ?? []) {
+            const key = String(h.ticket_id);
+            const arr = byTicket.get(key) ?? [];
+            arr.push(toHistoryEntry(h));
+            byTicket.set(key, arr);
+          }
+        }
+        if (assignedTickets) {
+          const mappedTickets = assignedTickets.map((r) =>
+            toSupportTicket(r, byTicket.get(String(r.id)) ?? []),
+          );
+          setTickets(mappedTickets);
+          setCachedData("support_tickets", mappedTickets, 30_000);
+        }
+        if (staffData) {
+          const staff = staffData.map(toStaff);
+          setCachedData("support_staff", staff, 60_000);
+        }
+        return currentMe;
+      } catch (err) {
+        console.error("Support data load rejected:", err);
+        if (mounted) setIsLoadingStaff(false);
+        return null;
       } finally {
         if (mounted) setIsLoadingStaff(false);
       }
     };
 
-    refresh();
+    refreshRef.current = refresh;
 
-    const channels = [
-      supabase.channel("realtime-support-tickets").on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "tickets" },
-        () => {
-          refresh();
-        }
-      ),
-      supabase.channel("realtime-support-staff").on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "support_staff" },
-        () => {
-          refresh();
-        }
-      ),
-    ];
+    (async () => {
+      const cachedStaff = getCachedData<SupportStaff[]>("support_staff");
+      const cachedTickets = getCachedData<Ticket[]>("support_tickets");
+      if (cachedStaff?.data) setStaffList(cachedStaff.data);
+      if (cachedTickets?.data) setTickets(cachedTickets.data);
+      await refresh();
+      if (!mounted) return;
 
-    channels.forEach((channel) => channel.subscribe());
+      channels.push(
+        supabase.channel("realtime-support-staff").on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "support_staff" },
+          () => {
+            refresh();
+          }
+        )
+      );
+
+      channels.forEach((channel) => channel.subscribe());
+    })();
 
     return () => {
       mounted = false;
       channels.forEach((channel) => supabase.removeChannel(channel));
     };
-  }, [user?.email]);
-  const [search, setSearch] = useState("");
+}, [user?.email]);
+   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<TicketStatus | "all">("all");
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [draftStatus, setDraftStatus] = useState<Ticket["status"]>("open");
@@ -212,6 +158,29 @@ export default function SupportDashboard() {
     }
   }, [theme]);
 
+  // Track the resolved staff id and create a ticket channel when it
+  // becomes available. This handles the case where the staff row is not
+  // present (or fails to load) on the first refresh — we still get
+  // realtime updates once the staff id resolves.
+  useEffect(() => {
+    if (!resolvedStaffId) return;
+    const channel = supabase
+      .channel(`realtime-support-tickets-${resolvedStaffId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tickets", filter: `assigned_to=eq.${resolvedStaffId}` },
+        () => {
+          refreshRef.current();
+        }
+      );
+    ticketChannelRef.current = channel;
+    channel.subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+      ticketChannelRef.current = null;
+    };
+  }, [resolvedStaffId]);
+
   const myTickets = useMemo(
     () => (currentStaff ? tickets.filter((t) => t.assignedTo === currentStaff.id) : []),
     [tickets, currentStaff],
@@ -233,6 +202,8 @@ export default function SupportDashboard() {
       return matchesStatus && matchesSearch;
     });
   }, [myTickets, search, statusFilter]);
+
+  const { paginatedItems: paginatedTickets, page: ticketsPage, totalPages: ticketsTotalPages, setPage: setTicketsPage } = usePagination(filteredTickets);
 
   const stats = useMemo(() => {
     const open = myTickets.filter((t) => t.status === "open").length;
@@ -323,28 +294,6 @@ export default function SupportDashboard() {
   };
 
   const handleUserAdded = (user: { id: string; name: string; email: string; role: string }) => {
-    setTickets((prev) => {
-      const maxNum = prev.reduce((max, t) => {
-        const match = t.id.match(/(\d+)$/);
-        if (match) return Math.max(max, parseInt(match[1], 10));
-        return max;
-      }, 0);
-      const nextId = `TK-${String(maxNum + 1).padStart(2, "0")}`;
-      return [
-        ...prev,
-        {
-          id: nextId,
-          subject: "New user account created",
-          category: "General",
-          priority: "low",
-          status: "open",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          description: `User account created for ${user.name} (${user.email}) with role: ${user.role}`,
-          submittedBy: currentStaff?.email,
-        } as Ticket,
-      ];
-    });
     logActivity({
       action: "user_created",
       target_type: "user",
@@ -367,15 +316,32 @@ export default function SupportDashboard() {
   useEffect(() => {
     if (loading) return;
     if (!user) {
-      router.replace("/");
-    } else if (user.role !== "support") {
-      router.replace(FORBIDDEN_ROUTE);
+      // Log unauthorized access attempt
+      fetch("/api/unauthorized-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "/support",
+          reason: "Not authenticated",
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        }),
+      }).catch(() => {});
     }
-  }, [user, loading, router]);
+  }, [user, loading]);
 
   if (loading) return <SupportSkeleton />;
   if (!user || user.role !== "support") {
-    return <SupportSkeleton />;
+    if (signingOut) return null;
+    return (
+      <>
+        <SupportSkeleton />
+        <ForbiddenAccessModal
+          isOpen={!user}
+          onClose={() => {}}
+          attemptedPath="/support"
+        />
+      </>
+    );
   }
 
   if (isLoadingStaff || !currentStaff) return <SupportSkeleton />;
@@ -423,6 +389,7 @@ export default function SupportDashboard() {
               </span>
               <button
                 onClick={() => setIsAddUserOpen(true)}
+                aria-label="Add User"
                 className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
                 <svg
@@ -438,10 +405,11 @@ export default function SupportDashboard() {
                     d="M18 7.5v6m0 0v6m0-6h6m-6 0H6"
                   />
                 </svg>
-                <span className="hidden sm:inline">Add User</span>
+                <span className="hidden sm:inline">Add New User</span>
               </button>
               <button
                 onClick={() => setIsProfileOpen(true)}
+                aria-label="Profile"
                 className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
                 <svg
@@ -457,12 +425,25 @@ export default function SupportDashboard() {
                     d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.25h15a1.5 1.5 0 001.5-1.5V19a5.25 5.25 0 00-10.5 0v.75a1.5 1.5 0 01-1.5 1.5H4.5z"
                   />
                 </svg>
-                <span className="hidden sm:inline">Profile</span>
+                <span className="hidden sm:inline">My Profile</span>
               </button>
               <button
                 onClick={() => setIsChatOpen(true)}
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                aria-label={
+                  unreadMessages > 0
+                    ? `Chat, ${unreadMessages} unread messages`
+                    : "Chat"
+                }
+                className="relative inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
+                {unreadMessages > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white"
+                  >
+                    {unreadMessages > 9 ? "9+" : unreadMessages}
+                  </span>
+                )}
                 <svg
                   className="h-4 w-4"
                   fill="none"
@@ -517,6 +498,12 @@ export default function SupportDashboard() {
               <span className="hidden text-sm text-zinc-600 dark:text-zinc-400 sm:inline">
                 {currentStaff.email}
               </span>
+              <button
+                onClick={() => setIsForgotPasswordOpen(true)}
+                className="text-xs text-zinc-500 underline hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
+              >
+                Forgot your password?
+              </button>
               <SignOutButton />
             </div>
           </div>
@@ -526,7 +513,7 @@ export default function SupportDashboard() {
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-8 flex flex-col gap-2">
           <h2 className="text-2xl font-semibold text-foreground">
-            {`${currentStaff.name}'s Dashboard`}
+            {`${currentStaff.name}'s Support Dashboard`}
           </h2>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
             {currentStaff.role} &middot; {currentStaff.email}
@@ -686,7 +673,7 @@ export default function SupportDashboard() {
                     </td>
                   </tr>
                 ) : (
-                  filteredTickets.map((ticket) => (
+                  paginatedTickets.map((ticket) => (
                     <tr
                       key={ticket.id}
                       className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
@@ -714,7 +701,7 @@ export default function SupportDashboard() {
                       </td>
                       <td className="px-6 py-4">
                         <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${statusStyles[ticket.status]}`}
+                          className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${ticketStatusStyles[ticket.status]}`}
                         >
                           {ticket.status.replace("_", " ")}
                         </span>
@@ -738,6 +725,7 @@ export default function SupportDashboard() {
                 )}
               </tbody>
             </table>
+            <Pagination page={ticketsPage} totalPages={ticketsTotalPages} onPageChange={setTicketsPage} />
           </div>
         </div>
       </main>
@@ -774,10 +762,10 @@ export default function SupportDashboard() {
           onClose={() => setIsForgotPasswordOpen(false)}
         />
       )}
-      {isChatOpen && (
+      {isChatOpen && user?.id && (
         <ChatPanel
           currentUser={{
-            id: user?.id || currentStaff.id,
+            id: user.id,
             name: currentStaff.name,
             email: currentStaff.email,
             role: "support",

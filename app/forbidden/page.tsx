@@ -33,18 +33,17 @@ export default function Forbidden() {
           </div>
         </div>
         <h1 className="text-3xl font-semibold text-foreground">403 - Forbidden</h1>
-        <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
-          You do not have permission to access this page. This area is restricted to
-          users with higher privileges.
-        </p>
-        <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
-          You will be redirected to the home page in 5 seconds...
-        </p>
+           <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+             You don&apos;t have permission to access this page. This area is restricted to users with higher privileges.
+           </p>
+           <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+             You&apos;ll be redirected to the home page in 5 seconds...
+           </p>
         <button
           onClick={() => router.replace("/")}
           className="mt-6 inline-flex items-center justify-center rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2"
         >
-          Go to Dashboard
+          Go to Home Page
         </button>
       </div>
     </div>

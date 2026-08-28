@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
+import { useFocusTrap } from "@/app/hooks/useFocusTrap";
 
 interface AddUserModalProps {
   isOpen: boolean;
@@ -16,54 +17,13 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
   const [isSubmitting, setIsSubmitting] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  const getFocusableElements = useCallback(() => {
-    if (!dialogRef.current) return [];
-    return Array.from(
-      dialogRef.current.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      )
-    ).filter((el) => !el.hasAttribute("disabled"));
-  }, []);
+  const handleClose = useCallback(() => {
+    if (!isSubmitting) {
+      onClose();
+    }
+  }, [isSubmitting, onClose]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const previousFocus = document.activeElement as HTMLElement;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (e.key !== "Tab") return;
-
-      const focusable = getFocusableElements();
-      if (!focusable.length) return;
-
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-
-      if (e.shiftKey) {
-        if (document.activeElement === first || !dialogRef.current?.contains(document.activeElement)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (document.activeElement === last || !dialogRef.current?.contains(document.activeElement)) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    dialogRef.current?.focus();
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      previousFocus.focus();
-    };
-  }, [isOpen, onClose, getFocusableElements]);
+  useFocusTrap(dialogRef, isOpen, handleClose);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,9 +38,9 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
 
       const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to add user");
-      }
+        if (!response.ok) {
+          throw new Error(data.error || "We couldn't add this user. Please try again.");
+        }
 
       onAdded(data.user);
       setName("");
@@ -88,7 +48,7 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
       setPassword("");
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -111,7 +71,9 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
             Add New User
           </h3>
           <button
-            onClick={onClose}
+            type="button"
+            onClick={handleClose}
+            aria-label="Close add user dialog"
             className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -131,7 +93,7 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Enter full name"
+              placeholder="Enter the user's full name"
             />
           </div>
           <div>
@@ -145,7 +107,7 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Enter email address"
+              placeholder="Enter the user's email address"
             />
           </div>
           <div>
@@ -156,11 +118,11 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
               id="password"
               type="password"
               required
-              minLength={6}
+              minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="Min. 6 characters"
+              placeholder="At least 8 characters"
             />
           </div>
           <div>
@@ -175,7 +137,7 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
             >
               <option value="User">User</option>
             </select>
-            <p className="mt-1 text-xs text-zinc-400">Only users can be added from the support dashboard.</p>
+            <p className="mt-1 text-xs text-zinc-400">Only standard users can be added from the support dashboard.</p>
           </div>
           {error && (
             <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>
@@ -183,7 +145,7 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
               Cancel
@@ -193,7 +155,7 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
               disabled={isSubmitting}
               className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2 disabled:opacity-50"
             >
-              {isSubmitting ? "Adding..." : "Add User"}
+              {isSubmitting ? "Adding user..." : "Add User"}
             </button>
           </div>
         </form>

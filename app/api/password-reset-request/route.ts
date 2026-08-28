@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit, getClientIdentifier } from "@/app/api/_lib/ratelimit";
+import { sendEmail } from "@/lib/email";
+import { passwordResetNotificationEmail } from "@/lib/email-templates";
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,22 +16,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || normalizedEmail.length > 254) {
+      return NextResponse.json(
+        { error: "Invalid email address" },
+        { status: 400 }
+      );
+    }
+
+    const identifier = getClientIdentifier(request);
+    const ipRateLimit = await checkRateLimit(identifier, "password-reset-request");
+
+    if (!ipRateLimit.success) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429 }
+      );
+    }
+
+    const emailRateLimit = await checkRateLimit(`email:${normalizedEmail}`, "password-reset-request");
+
+    if (!emailRateLimit.success) {
+      return NextResponse.json(
+        { error: "Too many requests for this email. Please try again later." },
+        { status: 429 }
+      );
+    }
+
     const supabase = await createClient();
+
+    const genericResponse = NextResponse.json({
+      message: "If an account exists, a reset email will be sent.",
+    });
 
     const { data: targetAccount } = await supabase
       .from("accounts")
       .select("id, name, email, role")
-      .eq("email", email)
+      .eq("email", normalizedEmail)
       .maybeSingle();
 
     if (!targetAccount) {
-      return NextResponse.json(
-        { error: "No account found with this email" },
-        { status: 404 }
-      );
+      return genericResponse;
     }
 
-    const ticketId = `TK-${Date.now()}`;
+    const ticketId = `TK-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const { error: ticketError } = await supabase.from("tickets").insert({
       id: ticketId,
       subject: "Password Reset Request",
@@ -36,19 +67,32 @@ export async function POST(request: NextRequest) {
       priority: "medium",
       status: "open",
       description: `User ${targetAccount.name} (${targetAccount.email}) requested a password reset. Please assist them to regain access to their account.`,
-      submitted_by: email,
+      submitted_by: normalizedEmail,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
 
     if (ticketError) {
+      console.error("Failed to create password reset ticket:", ticketError);
       return NextResponse.json(
-        { error: ticketError.message },
-        { status: 400 }
+        { error: "Unable to process the request. Please try again later." },
+        { status: 500 }
       );
     }
 
-    return NextResponse.json({ success: true, ticketId });
+    const templates = passwordResetNotificationEmail({
+      name: targetAccount.name,
+      email: normalizedEmail,
+    });
+
+    await sendEmail({
+      to: normalizedEmail,
+      subject: templates.subject,
+      html: templates.html,
+      text: templates.text,
+    });
+
+    return genericResponse;
   } catch (error) {
     console.error("Password reset request error:", error);
     return NextResponse.json(

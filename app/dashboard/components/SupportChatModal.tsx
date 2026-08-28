@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useNotifications } from "@/app/hooks/useNotifications";
 
 const supabase = createClient();
 
@@ -27,6 +28,7 @@ interface Conversation {
 interface SupportChatModalProps {
   isOpen: boolean;
   onClose: () => void;
+  ticketId: string;
   ticketSubject: string;
   currentUser: {
     id: string;
@@ -45,10 +47,12 @@ interface SupportChatModalProps {
 export default function SupportChatModal({
   isOpen,
   onClose,
+  ticketId,
   ticketSubject,
   currentUser,
   assignedStaff,
 }: SupportChatModalProps) {
+  const { refresh: refreshNotifications } = useNotifications();
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
@@ -57,6 +61,11 @@ export default function SupportChatModal({
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   const getFocusableElements = useCallback(() => {
     if (!dialogRef.current) return [];
@@ -70,11 +79,11 @@ export default function SupportChatModal({
   useEffect(() => {
     if (!isOpen) return;
 
-    const previousFocus = document.activeElement as HTMLElement;
+    const previousFocus = document.activeElement;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== "Tab") return;
@@ -103,9 +112,12 @@ export default function SupportChatModal({
 
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      previousFocus.focus();
+      if (previousFocus instanceof HTMLElement) {
+        previousFocus.focus();
+      }
     };
-  }, [isOpen, onClose, getFocusableElements]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -114,41 +126,32 @@ export default function SupportChatModal({
       setIsLoading(true);
       setError(null);
       try {
-        const { data: existing } = await supabase
-          .from("conversations")
-          .select("*")
-          .or(
-            `and(created_by.eq.${currentUser.id},created_for.eq.${assignedStaff.id}),and(created_by.eq.${assignedStaff.id},created_for.eq.${currentUser.id})`
-          )
-          .maybeSingle();
+        const res = await fetch(`/api/conversations`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            staff_email: assignedStaff.email,
+            ticket_id: ticketId,
+          }),
+        });
 
-        if (existing) {
-          setConversation(existing);
-        } else {
-          const { data: newConv, error: createError } = await supabase
-            .from("conversations")
-            .insert({
-              id: `conv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-              created_by: currentUser.id,
-              created_for: assignedStaff.id,
-              created_by_role: currentUser.role,
-              created_for_role: assignedStaff.role,
-            })
-            .select()
-            .single();
-
-          if (createError) throw createError;
-          setConversation(newConv);
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || `Server error: ${res.status}. Please try again.`);
         }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load chat");
-      } finally {
-        setIsLoading(false);
-      }
+
+        if (data.conversation) {
+          setConversation(data.conversation);
+        }
+} catch (err) {
+          setError(err instanceof Error ? err.message : "We couldn't load the chat. Please check your connection and try again.");
+        } finally {
+          setIsLoading(false);
+        }
     };
 
     findOrCreateConversation();
-  }, [isOpen, currentUser.id, assignedStaff.id, currentUser.role, assignedStaff.role]);
+  }, [isOpen, currentUser.id, assignedStaff.email, ticketId]);
 
   useEffect(() => {
     if (!conversation) return;
@@ -186,7 +189,7 @@ export default function SupportChatModal({
 
   useEffect(() => {
     if (!conversation) return;
-    const mounted = true;
+    let mounted = true;
 
     const loadMessages = async () => {
       try {
@@ -194,6 +197,11 @@ export default function SupportChatModal({
         const data = await res.json();
         if (mounted && res.ok && data.messages) {
           setMessages(data.messages);
+          // Mark messages as read after rendering.
+          await fetch(`/api/messages/read?conversation_id=${conversation.id}`, {
+            method: "PATCH",
+          });
+          refreshNotifications();
         }
       } catch {
         // ignore
@@ -201,6 +209,10 @@ export default function SupportChatModal({
     };
 
     loadMessages();
+
+    return () => {
+      mounted = false;
+    };
   }, [conversation]);
 
   const sendMessage = async () => {
@@ -221,17 +233,18 @@ export default function SupportChatModal({
         }),
       });
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || `Server error: ${res.status}`);
-      }
+        if (!res.ok) {
+          throw new Error(data.error || `Server error: ${res.status}. Please try again.`);
+        }
       if (data.message) {
         setMessages((prev) => [...prev, data.message]);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setIsSending(false);
-    }
+} catch (err) {
+          setError(err instanceof Error ? err.message : "We couldn't send your message. Please try again.");
+          setNewMessage(tempContent);
+        } finally {
+          setIsSending(false);
+        }
   };
 
   const formatTime = (dateString: string) => {
@@ -264,7 +277,9 @@ export default function SupportChatModal({
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close chat"
             className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -274,10 +289,12 @@ export default function SupportChatModal({
         </div>
 
         {error && (
-          <div className="border-b border-red-200 bg-red-50 px-5 py-2.5 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400">
+          <div role="alert" className="border-b border-red-200 bg-red-50 px-5 py-2.5 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400">
             {error}
             <button
+              type="button"
               onClick={() => setError(null)}
+              aria-label="Dismiss error"
               className="ml-2 text-red-500 hover:text-red-700 dark:hover:text-red-300"
             >
               ✕
@@ -302,39 +319,39 @@ export default function SupportChatModal({
               <div className="flex-1 overflow-y-auto p-4">
                 {messages.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-sm text-zinc-400">
-                    Start a conversation with {assignedStaff.name}
+                    Start a conversation with {assignedStaff.name}. They&apos;ll get back to you as soon as possible.
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {messages.map((message) => {
                       const isOwn = message.sender_id === currentUser.id;
                       return (
-                        <div
-                          key={message.id}
-                          className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
-                        >
                           <div
-                            className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                              isOwn
-                                ? "rounded-br-sm bg-foreground text-background"
-                                : "rounded-bl-sm bg-zinc-100 text-foreground dark:bg-zinc-800"
-                            }`}
+                            key={message.id}
+                            className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
                           >
-                            {!isOwn && (
-                              <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                                {assignedStaff.name}
-                              </p>
-                            )}
-                            <p className="whitespace-pre-line">{message.content}</p>
-                            <p
-                              className={`mt-1 text-xs ${
-                                isOwn ? "text-white/60" : "text-zinc-400"
+                            <div
+                              className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                                isOwn
+                                  ? "rounded-br-sm bg-foreground text-background"
+                                  : "rounded-bl-sm bg-zinc-100 text-foreground dark:bg-zinc-800"
                               }`}
                             >
-                              {formatTime(message.created_at)}
-                            </p>
+                              {!isOwn && (
+                                <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                                  {message.sender_name}
+                                </p>
+                              )}
+                              <p className="whitespace-pre-line">{message.content}</p>
+                              <p
+                                className={`mt-1 text-xs ${
+                                  isOwn ? "text-white/60" : "text-zinc-400"
+                                }`}
+                              >
+                                {formatTime(message.created_at)}
+                              </p>
+                            </div>
                           </div>
-                        </div>
                       );
                     })}
                     <div ref={messagesEndRef} />
@@ -354,7 +371,7 @@ export default function SupportChatModal({
                         sendMessage();
                       }
                     }}
-                    placeholder="Type a message..."
+                     placeholder="Type your message here..."
                     disabled={isSending}
                     className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800 disabled:opacity-50"
                   />

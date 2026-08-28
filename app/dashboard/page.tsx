@@ -1,60 +1,35 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import NewTicketModal from "./components/NewTicketModal";
+import TicketDetailModal from "./components/TicketDetailModal";
 import KnowledgeBase from "./components/KnowledgeBase";
 import SupportChatModal from "./components/SupportChatModal";
 import { useAuth } from "@/context/AuthContext";
-import { FORBIDDEN_ROUTE } from "@/context/authTypes";
 import SignOutButton from "@/components/SignOutButton";
 import { DashboardSkeleton } from "@/components/skeleton";
+import ForbiddenAccessModal from "@/components/ForbiddenAccessModal";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity";
-import type { Ticket, TicketStatus, TicketPriority, SupportStaff } from "../types/ticket";
+import { getCachedData, setCachedData } from "@/lib/cache";
+import { usePagination, Pagination } from "@/components/Pagination";
+import { ticketStatusStyles, priorityStyles } from "@/lib/styles";
+import { formatDate, priorityLabels } from "@/lib/utils";
+import type { Ticket, TicketPriority, SupportStaff } from "../types/ticket";
 import { toAdminTicket as toTicket } from "../types/mappers";
 
 const supabase = createClient();
 
-const statusStyles: Record<TicketStatus, string> = {
-  open: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-  in_progress:
-    "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-  resolved:
-    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
-  closed: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
-};
-
-const priorityStyles: Record<TicketPriority, string> = {
-  low: "text-zinc-500",
-  medium: "text-amber-600",
-  high: "text-orange-600",
-  critical: "text-red-600",
-};
-
-const priorityLabels: Record<TicketPriority, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  critical: "Critical",
-};
-
-function formatDate(dateString: string) {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
 export default function DashboardPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [activeTab, setActiveTab] = useState<"active" | "past">("active");
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isNewTicketOpen, setIsNewTicketOpen] = useState(false);
   const [isKbOpen, setIsKbOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatTicket, setChatTicket] = useState<{ id: string; subject: string; assignedStaff: Ticket["assignedStaff"] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
 
@@ -66,8 +41,7 @@ export default function DashboardPage() {
       : "light";
   });
 
-  const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, loading, signingOut } = useAuth();
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -79,8 +53,24 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user?.email) return;
     let active = true;
+
+    const cachedTickets = getCachedData<Ticket[]>("dashboard_tickets");
+    const cachedStaff = getCachedData<SupportStaff[]>("dashboard_staff");
+    if (cachedTickets?.data) {
+      const staffMap = new Map<string, SupportStaff>(
+        (cachedStaff?.data ?? []).map((s) => [String(s.id), s])
+      );
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTickets(
+        cachedTickets.data.map((t) => {
+          const staff = t.assignedTo ? staffMap.get(t.assignedTo) : undefined;
+          return staff ? { ...t, assignedStaff: staff } : t;
+        })
+      );
+    }
+
     (async () => {
-      const [{ data: ticketsData }, { data: staffData }] = await Promise.all([
+      const [{ data: ticketsData, error: ticketsError }, { data: staffData, error: staffError }] = await Promise.all([
         supabase
           .from("tickets")
           .select("*")
@@ -89,6 +79,11 @@ export default function DashboardPage() {
         supabase.from("support_staff").select("*"),
       ]);
       if (active) {
+        if (ticketsError || staffError) {
+          console.error("Failed to load dashboard data:", ticketsError ?? staffError);
+          setError(ticketsError?.message ?? staffError?.message ?? "We couldn't load your dashboard data. Please check your connection and try again.");
+          return;
+        }
         const staffMap = new Map<string, SupportStaff>();
         if (staffData) {
           for (const s of staffData) {
@@ -118,6 +113,11 @@ export default function DashboardPage() {
             return ticket;
           });
           setTickets(mapped);
+          setCachedData("dashboard_tickets", mapped, 30_000);
+        }
+        if (staffData) {
+          const staffList = Array.from(staffMap.values());
+          setCachedData("dashboard_staff", staffList, 60_000);
         }
       }
     })();
@@ -131,7 +131,7 @@ export default function DashboardPage() {
     let mounted = true;
 
     const refresh = async () => {
-      const [{ data: ticketsData }, { data: staffData }] = await Promise.all([
+      const [{ data: ticketsData, error: ticketsError }, { data: staffData, error: staffError }] = await Promise.all([
         supabase
           .from("tickets")
           .select("*")
@@ -140,6 +140,11 @@ export default function DashboardPage() {
         supabase.from("support_staff").select("*"),
       ]);
       if (!mounted) return;
+if (ticketsError || staffError) {
+          console.error("Failed to load dashboard data:", ticketsError ?? staffError);
+          setError(ticketsError?.message ?? staffError?.message ?? "We couldn't load your dashboard data. Please check your connection and try again.");
+          return;
+        }
       const staffMap = new Map<string, SupportStaff>();
       if (staffData) {
         for (const s of staffData) {
@@ -208,6 +213,8 @@ export default function DashboardPage() {
 
   const displayedTickets = activeTab === "active" ? activeTickets : pastTickets;
 
+  const { paginatedItems: paginatedTickets, page: ticketsPage, totalPages: ticketsTotalPages, setPage: setTicketsPage } = usePagination(displayedTickets);
+
   const stats = {
     open: tickets.filter((t) => t.status === "open").length,
     inProgress: tickets.filter((t) => t.status === "in_progress").length,
@@ -224,7 +231,6 @@ export default function DashboardPage() {
     description: string;
   }): Promise<{ success: boolean; error?: string }> => {
     if (!user?.email) return { success: false, error: "Not authenticated" };
-    const now = new Date().toISOString();
     const description = [
       form.fullname ? `Name: ${form.fullname}` : "",
       form.department ? `Dept: ${form.department}` : "",
@@ -233,20 +239,8 @@ export default function DashboardPage() {
       .filter(Boolean)
       .join("\n");
 
-    const { data: maxRow } = await supabase
-      .from("tickets")
-      .select("id")
-      .order("id", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    let nextNum = 1;
-    if (maxRow?.id) {
-      const match = String(maxRow.id).match(/(\d+)$/);
-      if (match) nextNum = Math.max(nextNum, parseInt(match[1], 10) + 1);
-    }
-
-    const ticketId = `TK-${String(nextNum).padStart(2, "0")}`;
+    const now = new Date().toISOString();
+    const ticketId = `TK-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
     const { data, error } = await supabase
       .from("tickets")
@@ -264,17 +258,18 @@ export default function DashboardPage() {
       .select()
       .single();
 
-    if (!error && data) {
-      setTickets((prev) => [toTicket(data), ...prev]);
-      logActivity({
-        action: "ticket_created",
-        target_type: "ticket",
-        target_id: ticketId,
-        details: `Created ticket: ${form.subject}`,
-      });
-      return { success: true };
+    if (error) {
+      return { success: false, error: error.message ?? "We couldn't create your ticket. Please try again in a moment." };
     }
-    return { success: false, error: error?.message ?? "Failed to create ticket" };
+
+    setTickets((prev) => [toTicket(data), ...prev]);
+    logActivity({
+      action: "ticket_created",
+      target_type: "ticket",
+      target_id: data.id,
+      details: `Created ticket: ${form.subject}`,
+    }).catch(() => {});
+    return { success: true };
   };
 
   const toggleTheme = () => {
@@ -288,16 +283,33 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (loading) return;
-    if (!user) {
-      router.replace("/");
-    } else if (user.role !== "user") {
-      router.replace(FORBIDDEN_ROUTE);
+    if (!user || user.role !== "user") {
+      // Log unauthorized access attempt
+      fetch("/api/unauthorized-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "/dashboard",
+          reason: user ? `Insufficient role: ${user.role}` : "Not authenticated",
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        }),
+      }).catch(() => {});
     }
-  }, [user, loading, router]);
+  }, [user, loading]);
 
   if (loading) return <DashboardSkeleton />;
   if (!user || user.role !== "user") {
-    return <DashboardSkeleton />;
+    if (signingOut) return null;
+    return (
+      <>
+        <DashboardSkeleton />
+        <ForbiddenAccessModal
+          isOpen
+          onClose={() => {}}
+          attemptedPath="/dashboard"
+        />
+      </>
+    );
   }
 
   return (
@@ -372,13 +384,26 @@ export default function DashboardPage() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+        {error && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400">
+            {error}
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              aria-label="Dismiss error message"
+              className="ml-2 text-red-500 hover:text-red-700 dark:hover:text-red-300"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-2xl font-semibold text-foreground">
               Ticket Dashboard
             </h2>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              Manage and track your support tickets
+              Manage and track all your IT support requests in one place.
             </p>
           </div>
             <div className="flex items-center gap-3">
@@ -399,10 +424,10 @@ export default function DashboardPage() {
                     d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A9 9 0 006 18c1.052 0 2.062-.18 3-.512m0-13.042A8.967 8.967 0 0118 3.75c1.052 0 2.062.18 3 .512v14.25A9 9 0 0118 18c-1.052 0-2.062-.18-3-.512"
                   />
                 </svg>
-                Knowledge Base
+                Browse Knowledge Base
               </button>
               <button
-                onClick={() => setIsModalOpen(true)}
+                onClick={() => setIsNewTicketOpen(true)}
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2"
               >
                 <svg
@@ -418,7 +443,7 @@ export default function DashboardPage() {
                     d="M12 4.5v15m7.5-7.5h-15"
                   />
                 </svg>
-                New Ticket
+                Submit New Ticket
               </button>
             </div>
         </div>
@@ -511,16 +536,20 @@ export default function DashboardPage() {
                   />
                 </svg>
                 <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                  No tickets found
+                  You don&apos;t have any tickets yet. Submit a new ticket to get started!
                 </p>
               </div>
             ) : (
               <div className="space-y-3">
-                {displayedTickets.map((ticket) => (
-                  <div
-                    key={ticket.id}
-                    className="rounded-xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
-                  >
+{paginatedTickets.map((ticket) => (
+          <div
+            key={ticket.id}
+            onClick={() => {
+              setSelectedTicket(ticket);
+              setIsDetailOpen(true);
+            }}
+            className="cursor-pointer rounded-xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
+          >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex-1">
                         <div className="flex flex-wrap items-center gap-2">
@@ -528,7 +557,7 @@ export default function DashboardPage() {
                             {ticket.id}
                           </span>
                           <span
-                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusStyles[ticket.status]}`}
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${ticketStatusStyles[ticket.status]}`}
                           >
                             {ticket.status.replace("_", " ")}
                           </span>
@@ -589,14 +618,15 @@ export default function DashboardPage() {
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-0.5 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-                              Unassigned
+                               Awaiting Assignment
                             </span>
                           )}
                         </div>
                       </div>
                       {(ticket.status === "open" || ticket.status === "in_progress") && ticket.assignedStaff && (
                         <button
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setChatTicket({
                               id: ticket.id,
                               subject: ticket.subject,
@@ -619,12 +649,13 @@ export default function DashboardPage() {
                               d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 013 21V12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
                             />
                           </svg>
-                          Message
+                          Send Message
                         </button>
                       )}
                     </div>
                   </div>
                 ))}
+                <Pagination page={ticketsPage} totalPages={ticketsTotalPages} onPageChange={setTicketsPage} />
               </div>
             )}
           </div>
@@ -632,13 +663,21 @@ export default function DashboardPage() {
       </main>
 
       <NewTicketModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        isOpen={isNewTicketOpen}
+        onClose={() => setIsNewTicketOpen(false)}
         onSubmit={handleNewTicket}
       />
       <KnowledgeBase
         isOpen={isKbOpen}
         onClose={() => setIsKbOpen(false)}
+      />
+      <TicketDetailModal
+        isOpen={isDetailOpen}
+        onClose={() => {
+          setIsDetailOpen(false);
+          setSelectedTicket(null);
+        }}
+        ticket={selectedTicket}
       />
       {isChatOpen && chatTicket && chatTicket.assignedStaff && (
         <SupportChatModal
@@ -647,6 +686,7 @@ export default function DashboardPage() {
             setIsChatOpen(false);
             setChatTicket(null);
           }}
+          ticketId={chatTicket.id}
           ticketSubject={chatTicket.subject}
           currentUser={{
             id: user?.id || "",

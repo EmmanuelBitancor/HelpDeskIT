@@ -24,6 +24,7 @@ export interface Account {
 interface AuthContextValue {
   user: Account | null;
   loading: boolean;
+  signingOut: boolean;
   signIn: (
     email: string,
     password: string,
@@ -36,6 +37,15 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
+  const [signingOut, setSigningOut] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return localStorage.getItem("sessionId");
+    } catch {
+      return null;
+    }
+  });
   const supabase = createClient();
 
   useEffect(() => {
@@ -58,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data: profile } = await supabase
         .from("accounts")
         .select("id, name, email, role, avatar")
-        .eq("email", authUser.email)
+        .eq("user_id", authUser.id)
         .maybeSingle();
 
       if (id !== loadId) return;
@@ -73,13 +83,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
-        const prev = user;
         loadId++;
         setUser(null);
-        setLoading(false);
-        if (prev) {
-          logActivity({ action: "logout", details: `Session ended for ${prev.email}` });
+        setSessionId(null);
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("sessionId");
         }
+        setLoading(false);
       } else if (event === "SIGNED_IN") {
         loadProfile();
       } else {
@@ -110,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: profile } = await supabase
       .from("accounts")
       .select("id, name, email, role, avatar")
-      .eq("email", authUser.email)
+      .eq("user_id", authUser.id)
       .maybeSingle();
 
     if (!profile) {
@@ -125,21 +135,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(account);
 
     try {
-      const device =
-        typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 120) : "unknown";
-      const sessionId = `sess-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      await supabase.from("user_sessions").insert({
-        id: sessionId,
-        user_id: account.id,
-        user_email: account.email,
-        user_name: account.name,
-        user_role: account.role,
-        device,
-        ip_address: null,
-        user_agent: device,
-        last_active: new Date().toISOString(),
-        created_at: new Date().toISOString(),
+      const res = await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
       });
+      const data = await res.json();
+      if (res.ok && data.sessionId) {
+        const sessionIdValue = data.sessionId as string;
+        setSessionId(sessionIdValue);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("sessionId", sessionIdValue);
+        }
+      }
     } catch {
       // session tracking is best-effort
     }
@@ -149,27 +156,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    setSigningOut(true);
+    const currentSessionId = sessionId;
     const currentUser = user;
+
+    // Best-effort cleanup: fire these off without blocking sign-out.
+    const cleanupPromise = currentSessionId
+      ? fetch("/api/sessions", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: currentSessionId }),
+        }).catch(() => {
+          // ignore cleanup errors
+        })
+      : Promise.resolve();
+
+    const activityPromise = currentUser
+      ? logActivity({ action: "logout", details: `Signed out ${currentUser.email}` }).catch(() => {
+          // ignore activity logging errors
+        })
+      : Promise.resolve();
+
     const { error } = await supabase.auth.signOut();
     if (error) {
+      setSigningOut(false);
       throw error;
     }
-    setUser(null);
-    if (currentUser) {
-      try {
-        await supabase
-          .from("user_sessions")
-          .delete()
-          .eq("user_email", currentUser.email);
-      } catch {
-        // best-effort cleanup
-      }
-      await logActivity({ action: "logout", details: `Signed out ${currentUser.email}` });
+
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("sessionId");
     }
+    setUser(null);
+    setSessionId(null);
+
+    // Let background cleanup finish after state is cleared.
+    Promise.all([cleanupPromise, activityPromise]).catch(() => {
+      // swallow any remaining errors
+    }).finally(() => {
+      setSigningOut(false);
+    });
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signingOut, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

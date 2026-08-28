@@ -1,79 +1,40 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import StaffModal from "./components/StaffModal";
+import { useNotifications } from "@/app/hooks/useNotifications";
 import { useAuth } from "@/context/AuthContext";
-import { FORBIDDEN_ROUTE } from "@/context/authTypes";
 import SignOutButton from "@/components/SignOutButton";
 import { AdminSkeleton } from "@/components/skeleton";
+import ForbiddenAccessModal from "@/components/ForbiddenAccessModal";
 import { createClient } from "@/lib/supabase/client";
 import { logActivity } from "@/lib/activity";
+import { getCachedData, setCachedData } from "@/lib/cache";
+import { usePagination, Pagination } from "@/components/Pagination";
+import { ticketStatusStyles, priorityStyles } from "@/lib/styles";
+import { formatDate, getAvatarColor, priorityLabels } from "@/lib/utils";
 import ChatPanel from "../chat/components/ChatPanel";
-import type { Ticket, SupportStaff, TicketStatus, TicketPriority } from "../types/ticket";
+import type { Ticket, SupportStaff, TicketStatus } from "../types/ticket";
 import { toAdminTicket, toStaff } from "../types/mappers";
 
 const supabase = createClient();
 
-const statusStyles: Record<TicketStatus, string> = {
-  open: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-  in_progress:
-    "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-  resolved:
-    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
-  closed: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
-};
-
-const priorityStyles: Record<TicketPriority, string> = {
-  low: "text-zinc-500",
-  medium: "text-amber-600",
-  high: "text-orange-600",
-  critical: "text-red-600",
-};
-
-const priorityLabels: Record<TicketPriority, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  critical: "Critical",
-};
-
-function formatDate(dateString: string) {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function getAvatarColor(name: string) {
-  const colors = [
-    "bg-blue-500",
-    "bg-emerald-500",
-    "bg-amber-500",
-    "bg-purple-500",
-    "bg-pink-500",
-    "bg-indigo-500",
-  ];
-  const index = name
-    .split("")
-    .reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return colors[index % colors.length];
-}
-
-function getInitials(name: string) {
-  return name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase();
-}
-
 export default function AdminDashboard() {
+  const VALID_STAFF_ROLES = [
+    "IT Support Specialist",
+    "Senior IT Support",
+    "Network Administrator",
+    "Hardware Support",
+    "Software Support",
+    "System Administrator",
+    "Help Desk Technician",
+    "Field Technician",
+  ];
+
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [staffList, setStaffList] = useState<SupportStaff[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [selectedStaff, setSelectedStaff] = useState<SupportStaff | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [search, setSearch] = useState("");
@@ -86,9 +47,11 @@ export default function AdminDashboard() {
     email: "",
     role: "",
     customRole: "",
+    password: "",
   });
   const [staffFormError, setStaffFormError] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const { unreadMessages } = useNotifications();
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const saved = localStorage.getItem("theme");
@@ -158,7 +121,7 @@ export default function AdminDashboard() {
       if (e.key === "Escape") {
         setIsStaffFormOpen(false);
         setEditingStaff(null);
-        setStaffForm({ name: "", email: "", role: "", customRole: "" });
+        setStaffForm({ name: "", email: "", role: "", customRole: "", password: "" });
         return;
       }
       if (e.key !== "Tab") return;
@@ -191,8 +154,7 @@ export default function AdminDashboard() {
     };
   }, [isStaffFormOpen, getFocusableElements]);
 
-  const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, loading, signingOut } = useAuth();
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -202,43 +164,55 @@ export default function AdminDashboard() {
   }, [theme]);
 
   useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const [{ data: ticketsData }, { data: staffData }] = await Promise.all([
-          supabase.from("tickets").select("*").order("created_at", { ascending: false }),
-          supabase.from("support_staff").select("*").order("name"),
-        ]);
-        if (active) {
-          if (ticketsData) setTickets(ticketsData.map((r) => toAdminTicket(r)));
-          if (staffData) setStaffList(staffData.map((r) => toStaff(r)));
-        }
-      } finally {
-        if (active) setIsLoading(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
     let mounted = true;
 
     const refresh = async () => {
       try {
-        const [{ data: ticketsData }, { data: staffData }] = await Promise.all([
+        const [ticketsRes, staffRes] = await Promise.all([
           supabase.from("tickets").select("*").order("created_at", { ascending: false }),
           supabase.from("support_staff").select("*").order("name"),
         ]);
+
         if (!mounted) return;
-        if (ticketsData) setTickets(ticketsData.map((r) => toAdminTicket(r)));
-        if (staffData) setStaffList(staffData.map((r) => toStaff(r)));
+
+        if (ticketsRes.error || staffRes.error) {
+          const message = ticketsRes.error?.message || staffRes.error?.message || "Unable to load dashboard data. Please check your connection and try again.";
+          console.error("Admin data load error:", ticketsRes.error || staffRes.error);
+          setPageError(message);
+          setIsLoading(false);
+          return;
+        }
+
+        setPageError(null);
+        const tickets = ticketsRes.data?.map((r) => toAdminTicket(r)) ?? [];
+        const staff = staffRes.data?.map((r) => toStaff(r)) ?? [];
+        setTickets(tickets);
+        setStaffList(staff);
+        setCachedData("admin_tickets", tickets, 30_000);
+        setCachedData("admin_staff", staff, 60_000);
+      } catch (err) {
+        console.error("Admin data load rejected:", err);
+        if (mounted) {
+          setPageError(err instanceof Error ? err.message : "Unable to load dashboard data. Please check your connection and try again.");
+          setIsLoading(false);
+        }
       } finally {
         if (mounted) setIsLoading(false);
       }
     };
 
+    const cachedTickets = getCachedData<Ticket[]>("admin_tickets");
+    const cachedStaff = getCachedData<SupportStaff[]>("admin_staff");
+    if (cachedTickets?.data) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTickets(cachedTickets.data);
+    }
+    if (cachedStaff?.data) {
+      setStaffList(cachedStaff.data);
+    }
+    if (cachedTickets?.data && cachedStaff?.data) {
+      setIsLoading(false);
+    }
     refresh();
 
     const channels = [
@@ -286,6 +260,8 @@ export default function AdminDashboard() {
       return matchesStatus && matchesSearch;
     });
   }, [tickets, search, statusFilter, selectedStaff]);
+
+  const { paginatedItems: paginatedTickets, page: ticketsPage, totalPages: ticketsTotalPages, setPage: setTicketsPage } = usePagination(filteredTickets);
 
   const stats = useMemo(() => {
     const base = selectedStaff
@@ -339,95 +315,115 @@ export default function AdminDashboard() {
 
   const openAddStaff = () => {
     setEditingStaff(null);
-    setStaffForm({ name: "", email: "", role: "", customRole: "" });
+    setStaffForm({ name: "", email: "", role: "", customRole: "", password: "" });
     setIsStaffFormOpen(true);
     setIsStaffModalOpen(false);
   };
 
   const openEditStaff = (staff: SupportStaff) => {
     setEditingStaff(staff);
-    setStaffForm({ name: staff.name, email: staff.email, role: staff.role, customRole: "" });
+    const isCustomRole = !VALID_STAFF_ROLES.includes(staff.role);
+    setStaffForm({
+      name: staff.name,
+      email: staff.email,
+      role: isCustomRole ? "__other__" : staff.role,
+      customRole: isCustomRole ? staff.role : "",
+      password: "",
+    });
     setIsStaffFormOpen(true);
     setIsStaffModalOpen(false);
   };
 
-  const handleSaveStaff = async () => {
+    const handleSaveStaff = async () => {
     setStaffFormError(null);
+    const isOtherRole = staffForm.role === "__other__";
+    const isEditing = !!editingStaff;
+
     if (
       !staffForm.name.trim() ||
       !staffForm.email.trim() ||
-      (!staffForm.role.trim() && !staffForm.customRole.trim())
-    )
+      (!isOtherRole && !staffForm.role.trim()) ||
+      (isOtherRole && !staffForm.customRole.trim())
+    ) {
+      setStaffFormError("Please fill in the name, email, and role fields.");
       return;
+    }
 
+    // Server enforces password requirements; generatePassword flag controls the behavior.
     const name = staffForm.name.trim();
     const email = staffForm.email.trim();
-    const roleTitle = staffForm.customRole.trim() || staffForm.role.trim();
+    const roleTitle = isOtherRole
+      ? staffForm.customRole.trim()
+      : staffForm.role.trim();
 
-    if (editingStaff) {
-      const payload = { name, email, role: roleTitle };
-      const { error } = await supabase
-        .from("support_staff")
-        .update(payload)
-        .eq("id", editingStaff.id);
-      if (error) {
-        setStaffFormError(error.message);
+    if (isEditing) {
+      try {
+        const res = await fetch(`/api/staff/${editingStaff.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            email,
+            role: roleTitle,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          setStaffFormError(data.error || "We couldn't update this staff member. Please try again.");
+          return;
+        }
+
+        setStaffList((prev) =>
+          prev.map((s) => (s.id === editingStaff.id ? { ...s, ...data.staff } : s)),
+        );
+        await logActivity({
+          action: "staff_updated",
+          target_type: "staff",
+          target_id: editingStaff.id,
+          details: `Updated staff: ${name} (${email})`,
+        });
+      } catch {
+        setStaffFormError("Something went wrong. Please try again.");
         return;
       }
-      setStaffList((prev) =>
-        prev.map((s) => (s.id === editingStaff.id ? { ...s, ...payload } : s)),
-      );
-      await supabase
-        .from("accounts")
-        .upsert(
-          { email, name, role: "support", avatar: getInitials(name) },
-          { onConflict: "email" }
-        );
-      await logActivity({
-        action: "staff_updated",
-        target_type: "staff",
-        target_id: editingStaff.id,
-        details: `Updated staff: ${name} (${email})`,
-      });
     } else {
-      const id = `staff-${Date.now()}`;
-      const newStaff: SupportStaff = {
-        id,
-        name,
-        email,
-        role: roleTitle,
-        avatar: getInitials(name),
-        active: true,
-      };
-      const { error } = await supabase.from("support_staff").insert({
-        id,
-        name: newStaff.name,
-        email: newStaff.email,
-        role: newStaff.role,
-        avatar: newStaff.avatar,
-        active: true,
-      });
-      if (error) {
-        setStaffFormError(error.message);
+      try {
+        const res = await fetch("/api/staff", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            email,
+            password: staffForm.password,
+            generatePassword: !staffForm.password.trim(),
+            role: roleTitle,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          setStaffFormError(data.error || "We couldn't create this staff member. Please try again.");
+          return;
+        }
+
+        setStaffList((prev) => [...prev, data.staff]);
+        await logActivity({
+          action: "staff_created",
+          target_type: "staff",
+          target_id: data.staff.id,
+          details: `Created staff: ${name} (${email})`,
+        });
+      } catch {
+        setStaffFormError("Something went wrong. Please try again.");
         return;
       }
-      setStaffList((prev) => [...prev, newStaff]);
-      await supabase
-        .from("accounts")
-        .upsert(
-          { email, name, role: "support", avatar: getInitials(name) },
-          { onConflict: "email" }
-        );
-      await logActivity({
-        action: "staff_created",
-        target_type: "staff",
-        target_id: id,
-        details: `Created staff: ${name} (${email})`,
-      });
     }
 
     setIsStaffFormOpen(false);
-    setStaffForm({ name: "", email: "", role: "", customRole: "" });
+    setStaffForm({ name: "", email: "", role: "", customRole: "", password: "" });
     setEditingStaff(null);
   };
 
@@ -468,7 +464,7 @@ export default function AdminDashboard() {
         .from("accounts")
         .delete()
         .eq("email", target.email)
-        .neq("role", "superadmin");
+        .in("role", ["user", "support"]);
     }
     setStaffList((prev) => prev.filter((s) => s.id !== staffId));
     setTickets((prev) =>
@@ -515,16 +511,32 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (loading) return;
-    if (!user) {
-      router.replace("/");
-    } else if (user.role !== "admin") {
-      router.replace(FORBIDDEN_ROUTE);
+    if (!user || user.role !== "admin") {
+      fetch("/api/unauthorized-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "/admin",
+          reason: user ? `Insufficient role: ${user.role}` : "Not authenticated",
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        }),
+      }).catch(() => {});
     }
-  }, [user, loading, router]);
+  }, [user, loading]);
 
   if (loading) return <AdminSkeleton />;
   if (!user || user.role !== "admin") {
-    return <AdminSkeleton />;
+    if (signingOut) return null;
+    return (
+      <>
+        <AdminSkeleton />
+        <ForbiddenAccessModal
+          isOpen
+          onClose={() => {}}
+          attemptedPath="/admin"
+        />
+      </>
+    );
   }
 
   if (isLoading) return <AdminSkeleton />;
@@ -581,8 +593,21 @@ export default function AdminDashboard() {
               </button>
               <button
                 onClick={() => setIsChatOpen(true)}
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                aria-label={
+                  unreadMessages > 0
+                    ? `Chat, ${unreadMessages} unread messages`
+                    : "Chat"
+                }
+                className="relative inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
+                {unreadMessages > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white"
+                  >
+                    {unreadMessages > 9 ? "9+" : unreadMessages}
+                  </span>
+                )}
                 <svg
                   className="h-4 w-4"
                   fill="none"
@@ -676,11 +701,17 @@ export default function AdminDashboard() {
                     d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"
                   />
                 </svg>
-                Back to Overview
+                Back to All Tickets
               </button>
             )}
           </div>
         </div>
+
+        {pageError && (
+          <div role="alert" className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-400">
+            {pageError}
+          </div>
+        )}
 
         {!selectedStaff && (
           <div className="mb-8">
@@ -722,10 +753,10 @@ export default function AdminDashboard() {
               />
             </svg>
             <p className="mt-2 text-sm font-medium text-zinc-600 dark:text-zinc-300">
-              No support staff found
+              No support staff members found yet
             </p>
             <p className="text-xs text-zinc-400 dark:text-zinc-500">
-              Add staff members to start managing tickets
+              Add support staff to begin assigning and managing tickets
             </p>
           </div>
         )}
@@ -802,7 +833,7 @@ export default function AdminDashboard() {
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search tickets..."
+                  placeholder="Search tickets by ID, subject, or description..."
                   className="w-full rounded-lg border border-zinc-300 py-2 pl-9 pr-4 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800"
                 />
               </div>
@@ -861,11 +892,11 @@ export default function AdminDashboard() {
                       colSpan={8}
                       className="px-6 py-12 text-center text-zinc-500 dark:text-zinc-400"
                     >
-                      No tickets found matching your filters
+                       No tickets match your current filters. Try adjusting your search or status filter.
                     </td>
                   </tr>
                 ) : (
-                  filteredTickets.map((ticket) => {
+                  paginatedTickets.map((ticket) => {
                     const assignee = ticket.assignedTo
                       ? staffList.find((s) => s.id === ticket.assignedTo)
                       : null;
@@ -897,7 +928,7 @@ export default function AdminDashboard() {
                         </td>
                         <td className="px-6 py-4">
                           <span
-                            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${statusStyles[ticket.status]}`}
+                            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${ticketStatusStyles[ticket.status]}`}
                           >
                             {ticket.status.replace("_", " ")}
                           </span>
@@ -919,7 +950,7 @@ export default function AdminDashboard() {
                             </button>
                           ) : (
                             <span className="text-xs text-zinc-400">
-                              Unassigned
+                               Awaiting Assignment
                             </span>
                           )}
                         </td>
@@ -931,7 +962,7 @@ export default function AdminDashboard() {
                             onClick={() => setSelectedTicket(ticket)}
                             className="text-xs font-medium text-foreground underline hover:no-underline"
                           >
-                            View
+                             View Details
                           </button>
                         </td>
                       </tr>
@@ -940,6 +971,7 @@ export default function AdminDashboard() {
                 )}
               </tbody>
             </table>
+            <Pagination page={ticketsPage} totalPages={ticketsTotalPages} onPageChange={setTicketsPage} />
           </div>
         </div>
       </main>
@@ -958,7 +990,7 @@ export default function AdminDashboard() {
           >
             <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
               <h3 id="adminTicketDetailTitle" className="text-lg font-semibold text-foreground">
-                {selectedTicket.id}
+                Ticket {selectedTicket.id}
               </h3>
               <button
                 onClick={() => setSelectedTicket(null)}
@@ -1012,7 +1044,7 @@ export default function AdminDashboard() {
                     Status
                   </p>
                   <span
-                    className={`mt-1 inline-flex items-center rounded-full px-2.5 py-1 text-sm font-medium ${statusStyles[selectedTicket.status]}`}
+                    className={`mt-1 inline-flex items-center rounded-full px-2.5 py-1 text-sm font-medium ${ticketStatusStyles[selectedTicket.status]}`}
                   >
                     {selectedTicket.status.replace("_", " ")}
                   </span>
@@ -1028,7 +1060,7 @@ export default function AdminDashboard() {
                     }
                     className="mt-1 rounded-lg border border-zinc-300 px-2.5 py-1 text-sm text-foreground outline-none focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800"
                   >
-                    <option value="">Unassigned</option>
+                     <option value="">Awaiting Assignment</option>
                     {staffList.map((staff) => (
                       <option key={staff.id} value={staff.id}>
                         {staff.name} - {staff.role}
@@ -1080,13 +1112,13 @@ export default function AdminDashboard() {
           >
             <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
               <h3 id="adminStaffFormTitle" className="text-lg font-semibold text-foreground">
-                {editingStaff ? "Edit Support Staff" : "Add Support Staff"}
+                {editingStaff ? "Edit Support Staff Member" : "Add Support Staff Member"}
               </h3>
               <button
                 onClick={() => {
                   setIsStaffFormOpen(false);
                   setEditingStaff(null);
-                  setStaffForm({ name: "", email: "", role: "", customRole: "" });
+                  setStaffForm({ name: "", email: "", role: "", customRole: "", password: "" });
                 }}
                 className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
               >
@@ -1121,7 +1153,7 @@ export default function AdminDashboard() {
                     setStaffForm({ ...staffForm, name: e.target.value })
                   }
                   className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                  placeholder="Enter full name"
+                   placeholder="Enter the staff member's full name"
                 />
               </div>
               <div>
@@ -1139,60 +1171,77 @@ export default function AdminDashboard() {
                     setStaffForm({ ...staffForm, email: e.target.value })
                   }
                   className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                  placeholder="Enter email address"
+                   placeholder="Enter the staff member's work email"
                 />
               </div>
                <div>
-                <label
-                  htmlFor="staffRole"
-                  className="block text-sm font-medium text-foreground"
+                  <label
+                    htmlFor="staffRole"
+                    className="block text-sm font-medium text-foreground"
+                  >
+                    Role / Job Title
+                  </label>
+                <select
+                  id="staffRole"
+                  value={staffForm.role}
+                  onChange={(e) =>
+                    setStaffForm({ ...staffForm, role: e.target.value, customRole: "" })
+                  }
+                  className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
                 >
-                  Role / Title
-                </label>
-                {staffForm.role === "__other__" ? (
+                  <option value="">Select a role from the list</option>
+                  {VALID_STAFF_ROLES.map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                  <option value="__other__">Other</option>
+                </select>
+                {staffForm.role === "__other__" && (
                   <input
-                    id="staffRole"
+                    id="staffCustomRole"
                     type="text"
                     value={staffForm.customRole}
                     onChange={(e) =>
                       setStaffForm({ ...staffForm, customRole: e.target.value })
                     }
-                    className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                    placeholder="Enter custom role"
+                    className="mt-2 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
+                     placeholder="Enter a custom role title"
                   />
-                ) : (
-                  <select
-                    id="staffRole"
-                    value={staffForm.role}
+                )}
+               </div>
+               {!editingStaff && (
+                 <div>
+                  <label
+                    htmlFor="staffPassword"
+                    className="block text-sm font-medium text-foreground"
+                  >
+                    Initial Password
+                  </label>
+                  <input
+                    id="staffPassword"
+                    type="password"
+                    required
+                    value={staffForm.password}
                     onChange={(e) =>
-                      setStaffForm({ ...staffForm, role: e.target.value, customRole: "" })
+                      setStaffForm({ ...staffForm, password: e.target.value })
                     }
                     className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                  >
-                    <option value="">Select a role</option>
-                    <option value="IT Support Specialist">IT Support Specialist</option>
-                    <option value="Senior IT Support">Senior IT Support</option>
-                    <option value="Network Administrator">Network Administrator</option>
-                    <option value="Hardware Support">Hardware Support</option>
-                    <option value="Software Support">Software Support</option>
-                    <option value="System Administrator">System Administrator</option>
-                    <option value="Help Desk Technician">Help Desk Technician</option>
-                    <option value="Field Technician">Field Technician</option>
-                    <option value="__other__">Other</option>
-                  </select>
-                )}
-              </div>
-              {staffFormError && (
-                <p role="alert" className="text-sm text-red-600 dark:text-red-400">{staffFormError}</p>
-              )}
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsStaffFormOpen(false);
-                    setEditingStaff(null);
-                    setStaffForm({ name: "", email: "", role: "", customRole: "" });
-                  }}
+                    placeholder="Set the staff member's initial password"
+                  />
+                 </div>
+               )}
+               {staffFormError && (
+                 <p role="alert" className="text-sm text-red-600 dark:text-red-400">{staffFormError}</p>
+               )}
+               <div className="flex justify-end gap-3 pt-2">
+                 <button
+                   type="button"
+                   onClick={() => {
+                     setIsStaffFormOpen(false);
+                     setEditingStaff(null);
+                     setStaffForm({ name: "", email: "", role: "", customRole: "", password: "" });
+                   }}
                   className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
                   Cancel
@@ -1202,7 +1251,7 @@ export default function AdminDashboard() {
                   onClick={handleSaveStaff}
                   className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2"
                 >
-                  {editingStaff ? "Save Changes" : "Add Staff"}
+                  {editingStaff ? "Save Changes" : "Add Staff Member"}
                 </button>
               </div>
             </div>

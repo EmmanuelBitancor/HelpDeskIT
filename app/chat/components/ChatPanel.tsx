@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Skeleton } from "@/components/skeleton";
 import { createClient } from "@/lib/supabase/client";
+import { useNotifications } from "@/app/hooks/useNotifications";
+import NewConversationModal, { type UserInfo } from "./NewConversationModal";
 
 const supabase = createClient();
 
@@ -12,6 +14,8 @@ interface Conversation {
   created_for: string;
   created_by_role: string;
   created_for_role: string;
+  created_by_name?: string;
+  created_for_name?: string;
   updated_at: string;
 }
 
@@ -23,13 +27,7 @@ interface Message {
   sender_role: string;
   content: string;
   created_at: string;
-}
-
-interface UserInfo {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
+  read_at?: string | null;
 }
 
 interface ChatPanelProps {
@@ -45,6 +43,7 @@ export default function ChatPanel({
   title = "Messages",
   onClose,
 }: ChatPanelProps) {
+  const { refresh: refreshNotifications } = useNotifications();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
@@ -54,31 +53,79 @@ export default function ChatPanel({
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
 
-  const getFocusableElements = useCallback(() => {
-    if (!dialogRef.current) return [];
+  const totalUnread = useMemo(() => {
+    let total = 0;
+    for (const count of Object.values(unreadCounts)) {
+      total += count;
+    }
+    return total;
+  }, [unreadCounts]);
+
+  const getFocusableElements = useCallback((containerRef: React.RefObject<HTMLDivElement | null>) => {
+    if (!containerRef.current) return [];
     return Array.from(
-      dialogRef.current.querySelectorAll<HTMLElement>(
+      containerRef.current.querySelectorAll<HTMLElement>(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
       )
     ).filter((el) => !el.hasAttribute("disabled"));
   }, []);
 
-  useEffect(() => {
-    if (!showNewConversation) return;
+  const loadConversations = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/conversations`);
+      const data = await res.json();
+      if (res.ok && data.conversations) {
+        setConversations(data.conversations);
+        if (data.unreadCounts) {
+          setUnreadCounts(data.unreadCounts);
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-    const previousFocus = document.activeElement as HTMLElement;
+  const loadRecipients = useCallback(async () => {
+    try {
+      const users = await getRecipients();
+      setRecipients(users.filter((u) => u.id !== currentUser.id));
+    } catch {
+      // ignore
+    }
+  }, [currentUser.id, getRecipients]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadConversations();
+    loadRecipients();
+  }, [currentUser.id, loadConversations, loadRecipients]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  useEffect(() => {
+    if (showNewConversation) return;
+
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.focus();
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setShowNewConversation(false);
+        onClose();
         return;
       }
       if (e.key !== "Tab") return;
 
-      const focusable = getFocusableElements();
+      const focusable = getFocusableElements(dialogRef);
       if (!focusable.length) return;
 
       const first = focusable[0];
@@ -98,59 +145,13 @@ export default function ChatPanel({
     };
 
     document.addEventListener("keydown", handleKeyDown);
-    dialogRef.current?.focus();
-
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      previousFocus.focus();
-    };
-  }, [showNewConversation, getFocusableElements]);
-
-  useEffect(() => {
-    if (!showNewConversation) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setShowNewConversation(false);
+      if (previousFocusRef.current && previousFocusRef.current.isConnected) {
+        previousFocusRef.current.focus();
       }
     };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [showNewConversation]);
-
-  const loadConversations = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/conversations`);
-      const data = await res.json();
-      if (res.ok && data.conversations) {
-        setConversations(data.conversations);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const loadRecipients = useCallback(async () => {
-    try {
-      const users = await getRecipients();
-      setRecipients(users.filter((u) => u.id !== currentUser.id));
-    } catch {
-      // ignore
-    }
-  }, [currentUser, getRecipients]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadConversations();
-    loadRecipients();
-  }, [currentUser, loadConversations, loadRecipients]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [showNewConversation, onClose, getFocusableElements]);
 
   useEffect(() => {
     if (!selectedConversation) return;
@@ -171,6 +172,10 @@ export default function ChatPanel({
           const newMessage = payload.new as Message;
           if (newMessage.sender_id !== currentUser.id) {
             setMessages((prev) => [...prev, newMessage]);
+            setUnreadCounts((prev) => ({
+              ...prev,
+              [newMessage.conversation_id]: (prev[newMessage.conversation_id] || 0) + 1
+            }));
           }
         }
       )
@@ -183,13 +188,22 @@ export default function ChatPanel({
   }, [selectedConversation, currentUser.id]);
 
   const selectConversation = async (conversation: Conversation) => {
+    selectedIdRef.current = conversation.id;
     setSelectedConversation(conversation);
     setMessages([]);
     try {
       const res = await fetch(`/api/messages?conversation_id=${conversation.id}`);
       const data = await res.json();
-      if (res.ok && data.messages) {
+      if (selectedIdRef.current === conversation.id && res.ok && data.messages) {
         setMessages(data.messages);
+        setUnreadCounts((prev) => ({ ...prev, [conversation.id]: 0 }));
+        await fetch(`/api/messages/read?conversation_id=${conversation.id}`, {
+          method: "PATCH",
+        });
+        refreshNotifications();
+        // Refresh the conversations list so the server-side unread counts
+        // are recalculated and stay cleared after re-renders.
+        loadConversations();
       }
     } catch {
       // ignore
@@ -209,7 +223,10 @@ export default function ChatPanel({
         throw new Error(data.error || `Server error: ${res.status}`);
       }
       if (data.conversation) {
-        setConversations((prev) => [data.conversation, ...prev]);
+        selectedIdRef.current = data.conversation.id;
+        setConversations((prev) =>
+          prev.some((c) => c.id === data.conversation.id) ? prev : [data.conversation, ...prev]
+        );
         setSelectedConversation(data.conversation);
         setMessages([]);
         setShowNewConversation(false);
@@ -245,6 +262,7 @@ export default function ChatPanel({
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
+      setNewMessage(tempContent);
     } finally {
       setIsSending(false);
     }
@@ -256,7 +274,15 @@ export default function ChatPanel({
         ? conversation.created_for
         : conversation.created_by;
     const other = recipients.find((r) => r.id === otherId);
-    return other?.name || other?.email || "Unknown";
+    if (other) return other.name || other.email || "Unknown";
+
+    const storedName =
+      conversation.created_by === currentUser.id
+        ? conversation.created_for_name
+        : conversation.created_by_name;
+    if (storedName) return storedName;
+
+    return "Unknown";
   };
 
   const formatTime = (dateString: string) => {
@@ -278,11 +304,22 @@ export default function ChatPanel({
         className="flex h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
-          <h3 id="chatPanelTitle" className="text-lg font-semibold text-foreground">
-            {title}
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 id="chatPanelTitle" className="text-lg font-semibold text-foreground">
+              {title}
+            </h3>
+            {totalUnread > 0 && (
+              <span
+                aria-label={`${totalUnread} unread messages`}
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white"
+              >
+                {totalUnread > 9 ? "9+" : totalUnread}
+              </span>
+            )}
+          </div>
           <button
             onClick={onClose}
+            aria-label="Close chat"
             className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -291,17 +328,18 @@ export default function ChatPanel({
           </button>
         </div>
 
-        {error && (
-          <div className="border-b border-red-200 bg-red-50 px-6 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400">
-            {error}
-            <button
-              onClick={() => setError(null)}
-              className="ml-2 text-red-500 hover:text-red-700 dark:hover:text-red-300"
-            >
-              ✕
-            </button>
-          </div>
-        )}
+            {error && (
+              <div role="alert" className="border-b border-red-200 bg-red-50 px-6 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400">
+                {error}
+                <button
+                  onClick={() => setError(null)}
+                  aria-label="Dismiss error"
+                  className="ml-2 text-red-500 hover:text-red-700 dark:hover:text-red-300"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
 
         <div className="flex flex-1 overflow-hidden">
           {/* Conversations list */}
@@ -330,24 +368,37 @@ export default function ChatPanel({
               ) : conversations.length === 0 ? (
                 <div className="p-4 text-center text-sm text-zinc-400">No conversations yet</div>
               ) : (
-                conversations.map((conversation) => (
-                  <button
-                    key={conversation.id}
-                    onClick={() => selectConversation(conversation)}
-                    className={`flex w-full flex-col items-start gap-1 border-b border-zinc-100 p-3 text-left transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800 ${
-                      selectedConversation?.id === conversation.id
-                        ? "bg-zinc-100 dark:bg-zinc-800"
-                        : ""
-                    }`}
-                  >
-                    <span className="text-sm font-medium text-foreground">
-                      {getConversationTitle(conversation)}
-                    </span>
-                    <span className="text-xs text-zinc-400">
-                      {new Date(conversation.updated_at).toLocaleDateString()}
-                    </span>
-                  </button>
-                ))
+                conversations.map((conversation) => {
+                  const unread = unreadCounts[conversation.id] || 0;
+                  return (
+                    <button
+                      key={conversation.id}
+                      onClick={() => selectConversation(conversation)}
+                      className={`flex w-full flex-col items-start gap-1 border-b border-zinc-100 p-3 text-left transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800 ${
+                        selectedConversation?.id === conversation.id
+                          ? "bg-zinc-100 dark:bg-zinc-800"
+                          : ""
+                      }`}
+                    >
+                      <div className="flex w-full items-center justify-between">
+                        <span className="text-sm font-medium text-foreground">
+                          {getConversationTitle(conversation)}
+                        </span>
+                        {unread > 0 && (
+                          <span
+                            aria-label={`${unread} unread messages`}
+                            className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white"
+                          >
+                            {unread > 9 ? "9+" : unread}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-zinc-400">
+                        {new Date(conversation.updated_at).toLocaleDateString()}
+                      </span>
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>
@@ -440,79 +491,13 @@ export default function ChatPanel({
         </div>
 
         {/* New conversation modal */}
-        {showNewConversation && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 p-4">
-            <div
-              ref={dialogRef}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="newConversationTitle"
-              tabIndex={-1}
-              className="w-full max-w-md rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
-            >
-              <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
-                <h3 id="newConversationTitle" className="text-lg font-semibold text-foreground">
-                  New Message
-                </h3>
-                <button
-                  onClick={() => setShowNewConversation(false)}
-                  className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              <div className="p-6">
-                <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
-                  Select a recipient to start a conversation:
-                </p>
-                <div className="max-h-64 space-y-2 overflow-y-auto">
-                  {recipients.length === 0 ? (
-                    <p className="text-sm text-zinc-400">No available recipients</p>
-                  ) : (
-                    recipients.map((recipient) => (
-                      <button
-                        key={recipient.id}
-                        onClick={() => startConversation(recipient.id)}
-                        className="flex w-full items-center gap-3 rounded-lg border border-zinc-200 p-3 text-left transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                      >
-                        <div
-                          className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-white ${
-                            avatarColors[recipient.name.charCodeAt(0) % avatarColors.length]
-                          }`}
-                        >
-                          {recipient.name
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")
-                            .toUpperCase()
-                            .slice(0, 2)}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-foreground">{recipient.name}</p>
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                            {recipient.role} · {recipient.email}
-                          </p>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <NewConversationModal
+          show={showNewConversation}
+          recipients={recipients}
+          onClose={() => setShowNewConversation(false)}
+          onSelect={startConversation}
+        />
       </div>
     </div>
   );
 }
-
-const avatarColors = [
-  "bg-blue-500",
-  "bg-emerald-500",
-  "bg-amber-500",
-  "bg-purple-500",
-  "bg-pink-500",
-  "bg-indigo-500",
-];

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef } from "react";
+import { useFocusTrap } from "@/app/hooks/useFocusTrap";
 
 interface ForgotPasswordModalProps {
   isOpen: boolean;
@@ -14,54 +15,7 @@ export default function ForgotPasswordModal({ isOpen, onClose }: ForgotPasswordM
   const [isSubmitting, setIsSubmitting] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  const getFocusableElements = useCallback(() => {
-    if (!dialogRef.current) return [];
-    return Array.from(
-      dialogRef.current.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      )
-    ).filter((el) => !el.hasAttribute("disabled"));
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const previousFocus = document.activeElement as HTMLElement;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (e.key !== "Tab") return;
-
-      const focusable = getFocusableElements();
-      if (!focusable.length) return;
-
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-
-      if (e.shiftKey) {
-        if (document.activeElement === first || !dialogRef.current?.contains(document.activeElement)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (document.activeElement === last || !dialogRef.current?.contains(document.activeElement)) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    dialogRef.current?.focus();
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      previousFocus.focus();
-    };
-  }, [isOpen, onClose, getFocusableElements]);
+  useFocusTrap(dialogRef, isOpen, onClose);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,11 +30,11 @@ export default function ForgotPasswordModal({ isOpen, onClose }: ForgotPasswordM
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to send reset email");
+      if (!res.ok) throw new Error(data.error || "We couldn't send the reset email. Please check your email address and try again.");
 
       setSuccess(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -100,10 +54,12 @@ export default function ForgotPasswordModal({ isOpen, onClose }: ForgotPasswordM
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
           <h3 id="forgotPasswordTitle" className="text-lg font-semibold text-foreground">
-            Reset Password
+            Reset Your Password
           </h3>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close dialog"
             className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -114,7 +70,7 @@ export default function ForgotPasswordModal({ isOpen, onClose }: ForgotPasswordM
 
         <form onSubmit={handleSubmit} className="space-y-4 p-6">
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Enter your email address and we will send you a link to reset your password.
+            Enter your email address below and we&apos;ll send you a secure link to reset your password.
           </p>
 
           <div>
@@ -128,14 +84,14 @@ export default function ForgotPasswordModal({ isOpen, onClose }: ForgotPasswordM
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-              placeholder="you@company.com"
+               placeholder="Enter your registered email"
             />
           </div>
 
           {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
           {success && (
             <p role="status" className="text-sm text-emerald-600 dark:text-emerald-400">
-              Password reset link sent! Check your email.
+              Password reset link sent! Please check your inbox and spam folder.
             </p>
           )}
 
@@ -152,7 +108,7 @@ export default function ForgotPasswordModal({ isOpen, onClose }: ForgotPasswordM
               disabled={isSubmitting || success}
               className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2 disabled:opacity-50"
             >
-              {isSubmitting ? "Sending..." : "Send Reset Link"}
+              {isSubmitting ? "Sending reset link..." : "Send Reset Link"}
             </button>
           </div>
         </form>

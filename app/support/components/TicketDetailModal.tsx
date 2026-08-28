@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useCallback } from "react";
+import { formatDate } from "@/lib/utils";
 import { Ticket, SupportStaff } from "../types";
 
 interface TicketDetailModalProps {
@@ -23,15 +24,6 @@ const statusOrder: Ticket["status"][] = [
   "resolved",
   "closed",
 ];
-
-function formatDate(dateString: string) {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 function formatTime(dateString: string) {
   const date = new Date(dateString);
@@ -56,6 +48,7 @@ export default function TicketDetailModal({
   getAvatarColor,
 }: TicketDetailModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const modalOwnedCloseRef = useRef(false);
 
   const getFocusableElements = useCallback(() => {
     if (!dialogRef.current) return [];
@@ -66,14 +59,20 @@ export default function TicketDetailModal({
     ).filter((el) => !el.hasAttribute("disabled"));
   }, []);
 
+  const closeModal = useCallback(() => {
+    modalOwnedCloseRef.current = true;
+    onClose();
+  }, [onClose]);
+
   useEffect(() => {
     if (!isOpen) return;
 
     const previousFocus = document.activeElement as HTMLElement;
-    const dialogEl = dialogRef.current;
+    modalOwnedCloseRef.current = false;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        modalOwnedCloseRef.current = true;
         onClose();
         return;
       }
@@ -103,7 +102,7 @@ export default function TicketDetailModal({
 
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      if (previousFocus && document.activeElement === dialogEl) {
+      if (modalOwnedCloseRef.current && previousFocus) {
         previousFocus.focus();
       }
     };
@@ -126,10 +125,10 @@ export default function TicketDetailModal({
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
           <h3 id="ticketDetailTitle" className="text-lg font-semibold text-foreground">
-            {ticket.id}
+            Ticket {ticket.id}
           </h3>
           <button
-            onClick={onClose}
+            onClick={closeModal}
             className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
           >
             <svg
@@ -170,7 +169,7 @@ export default function TicketDetailModal({
         <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2 md:gap-6">
           <div>
             <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              Subject
+              Ticket Subject
             </p>
             <p className="mt-1 text-sm font-medium text-foreground">
               {ticket.subject}
@@ -228,7 +227,7 @@ export default function TicketDetailModal({
         {ticket.history && ticket.history.length > 0 && (
           <div className="border-t border-zinc-200 px-6 py-4 dark:border-zinc-800">
             <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              Activity
+              Ticket History
             </p>
             <ul className="mt-2 space-y-2">
               {ticket.history.map((entry) => {
@@ -246,8 +245,8 @@ export default function TicketDetailModal({
                       {author}
                     </span>
                     <span className="text-zinc-600 dark:text-zinc-400">
-                      set status to
-                    </span>
+                          changed status to
+                        </span>
                     <span className="font-medium text-foreground">
                       {entry.status.replace("_", " ")}
                     </span>
@@ -307,7 +306,7 @@ export default function TicketDetailModal({
                 value={draftNotes}
                 onChange={(e) => onDraftNotesChange(e.target.value)}
                 className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800"
-                placeholder="Describe the resolution or next steps..."
+                 placeholder="Describe the resolution or any follow-up actions..."
               />
             </div>
           )}
@@ -315,7 +314,7 @@ export default function TicketDetailModal({
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={closeModal}
               className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
               Cancel
@@ -323,7 +322,10 @@ export default function TicketDetailModal({
             {canEdit && (
               <button
                 type="button"
-                onClick={onSave}
+                onClick={() => {
+                  onSave();
+                  closeModal();
+                }}
                 className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2"
               >
                 Save Changes

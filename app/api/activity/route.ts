@@ -1,23 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { ALLOWED_ACTIONS, type ActivityAction } from "@/lib/activity";
+import { checkRateLimit, getClientIdentifier } from "@/app/api/_lib/ratelimit";
+import { boundedString, getClientIp } from "@/app/api/_lib/request";
+
+const MAX_FIELD_LENGTH = 500;
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const {
-      action,
-      target_type,
-      target_id,
-      details,
-      ip_address,
-      user_agent,
-    } = body;
+    const identifier = getClientIdentifier(request);
+    const rateLimit = await checkRateLimit(identifier, "activity");
 
-    if (!action || typeof action !== "string") {
+    if (!rateLimit.success) {
       return NextResponse.json(
-        { error: "Action is required" },
-        { status: 400 }
+        { error: "Too many requests. Please try again later." },
+        { status: 429 },
       );
+    }
+
+    const bodyResult = await parseJsonBody<{
+      action: unknown;
+      target_type?: unknown;
+      target_id?: unknown;
+      details?: unknown;
+    }>(request);
+    if (!bodyResult.ok) return NextResponse.json({ error: bodyResult.error }, { status: 400 });
+
+    const { action, target_type, target_id, details } = bodyResult.data;
+    const normalizedAction = typeof action === "string" ? action.trim() : "";
+
+    if (!normalizedAction || !ALLOWED_ACTIONS.has(normalizedAction as ActivityAction)) {
+      return NextResponse.json({ error: "Invalid action" }, { status: 400 });
     }
 
     const supabase = await createClient();
@@ -26,10 +39,7 @@ export async function POST(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { data: account } = await supabase
@@ -48,29 +58,26 @@ export async function POST(request: NextRequest) {
       actor_id: user.id,
       actor_name: actorName,
       actor_role: actorRole,
-      action,
-      target_type: target_type || null,
-      target_id: target_id || null,
-      details: details || null,
-      ip_address: ip_address || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null,
-      user_agent: user_agent || request.headers.get("user-agent") || null,
+      action: normalizedAction,
+      target_type: boundedString(target_type, MAX_FIELD_LENGTH),
+      target_id: boundedString(target_id, MAX_FIELD_LENGTH),
+      details: boundedString(details, MAX_FIELD_LENGTH),
+      ip_address: getClientIp(request),
+      user_agent: request.headers.get("user-agent") || null,
     });
 
     if (error) {
       console.error("Failed to log activity:", error);
       return NextResponse.json(
         { error: "Failed to log activity" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Activity log error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
@@ -82,10 +89,7 @@ export async function GET(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { data: account } = await supabase
@@ -95,14 +99,11 @@ export async function GET(request: NextRequest) {
       .maybeSingle();
 
     if (account?.role !== "superadmin") {
-      return NextResponse.json(
-        { error: "Forbidden" },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const { searchParams } = new URL(request.url);
-    const limit = Math.min(Number(searchParams.get("limit")) || 100, 500);
+    const limit = Math.max(1, Math.min(Number(searchParams.get("limit")) || 100, 500));
     const action = searchParams.get("action");
     const actorId = searchParams.get("actor_id");
 
@@ -113,7 +114,10 @@ export async function GET(request: NextRequest) {
       .limit(limit);
 
     if (action) {
-      query = query.eq("action", action);
+      if (!ALLOWED_ACTIONS.has(action as ActivityAction)) {
+        return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+      }
+      query = query.eq("action", action as ActivityAction);
     }
     if (actorId) {
       query = query.eq("actor_id", actorId);
@@ -125,16 +129,24 @@ export async function GET(request: NextRequest) {
       console.error("Failed to fetch activity logs:", error);
       return NextResponse.json(
         { error: "Failed to fetch activity logs" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
     return NextResponse.json({ logs: data || [] });
   } catch (error) {
     console.error("Activity fetch error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+async function parseJsonBody<T = unknown>(
+  request: NextRequest,
+): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  try {
+    const data = (await request.json()) as T;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Invalid JSON body" };
   }
 }

@@ -20,6 +20,7 @@ export interface Ticket {
   description: string;
   submittedBy?: string;
   assignedTo?: string;
+  assignedAgent: string;
   assignedStaff?: {
     id: string;
     name: string;

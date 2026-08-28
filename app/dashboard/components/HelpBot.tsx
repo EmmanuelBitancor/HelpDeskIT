@@ -57,7 +57,7 @@ export default function HelpBot() {
     setError(null);
 
     try {
-      const history = messages.map((m) => ({ role: m.role, text: m.text }));
+      const history = messages.map((m) => ({ role: m.role === "bot" ? "assistant" : m.role, text: m.text }));
 
       const response = await fetch("/api/chatbot", {
         method: "POST",
@@ -69,7 +69,8 @@ export default function HelpBot() {
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || `Server error: ${response.status}`);
+        const apiError = data.error || `We couldn't reach the server (${response.status}). Please try again.`;
+        throw new Error(apiError);
       }
 
       const data = await response.json();
@@ -81,7 +82,7 @@ export default function HelpBot() {
       };
       setMessages((prev) => [...prev, botMsg]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof Error ? err.message : "I'm having trouble connecting right now. Please try again in a moment.");
     } finally {
       setIsTyping(false);
     }
@@ -179,7 +180,7 @@ export default function HelpBot() {
 
             {error && (
               <div className="flex items-start">
-                <div className="rounded-2xl rounded-bl-sm bg-red-50 px-4 py-3 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
+                <div className="rounded-2xl rounded-bl-sm bg-red-50 px-4 py-3 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400" role="alert">
                   {error}
                 </div>
               </div>
@@ -210,7 +211,7 @@ export default function HelpBot() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask HelpBot..."
+               placeholder="Ask HelpBot anything about IT support..."
               disabled={isTyping}
               className="flex-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800 dark:placeholder-zinc-500 disabled:opacity-50"
             />
