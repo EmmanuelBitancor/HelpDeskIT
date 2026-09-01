@@ -210,6 +210,8 @@ export default function Home() {
             right: 0;
             transform: translateY(-50%);
             margin: 0 auto;
+            max-height: calc(100vh - 2rem);
+            overflow-y: auto;
             width: 90%;
             max-width: 400px;
             ${mobileView === "form" ? "animation: slideInRight 0.4s ease-out forwards;" : "animation: slideOutRight 0.4s ease-out forwards; pointer-events: none;"}
