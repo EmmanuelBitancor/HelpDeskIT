@@ -26,6 +26,7 @@ export default function Home() {
   const [signupEmail, setSignupEmail] = useState("");
   const [signupPassword, setSignupPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(savedRememberMe);
+  const [mobileView, setMobileView] = useState<"panel" | "form">("form");
   const trustHighlights = [
     "Smart ticket triage",
     "Faster response times",
@@ -124,10 +125,236 @@ export default function Home() {
 
   return (
     <div className="auth-shell">
+      <style>{`
+        @keyframes slideInLeft {
+          from {
+            opacity: 0;
+            transform: translateX(-100%) translateY(-50%);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(-50%) translateY(-50%);
+          }
+        }
+        @keyframes slideOutLeft {
+          from {
+            opacity: 1;
+            transform: translateX(-50%) translateY(-50%);
+          }
+          to {
+            opacity: 0;
+            transform: translateX(-100%) translateY(-50%);
+          }
+        }
+        @keyframes slideInRight {
+          from {
+            opacity: 0;
+            transform: translateX(100%) translateY(-50%);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(-50%) translateY(-50%);
+          }
+        }
+        @keyframes slideOutRight {
+          from {
+            opacity: 1;
+            transform: translateX(-50%) translateY(-50%);
+          }
+          to {
+            opacity: 0;
+            transform: translateX(100%) translateY(-50%);
+          }
+        }
+        @media (max-width: 768px) {
+          .auth-grid {
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            min-height: 100vh;
+          }
+          .auth-side-panel {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translateX(-50%) translateY(-50%);
+            width: 90%;
+            max-width: 400px;
+            ${mobileView === "panel" ? "animation: slideInLeft 0.4s ease-out forwards;" : "animation: slideOutLeft 0.4s ease-out forwards; pointer-events: none;"}
+            cursor: pointer;
+          }
+          .auth-side-panel:hover {
+            opacity: 0.9;
+          }
+          .auth-card {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translateX(-50%) translateY(-50%);
+            width: 90%;
+            max-width: 400px;
+            ${mobileView === "form" ? "animation: slideInRight 0.4s ease-out forwards;" : "animation: slideOutRight 0.4s ease-out forwards; pointer-events: none;"}
+          }
+          .mobile-back-button {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            margin-bottom: 16px;
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            color: #1f2937;
+            font-size: 14px;
+            transition: all 0.3s;
+          }
+          .mobile-back-button:hover {
+            background: #f3f4f6;
+          }
+        }
+        @media (min-width: 769px) {
+          .mobile-back-button {
+            display: none !important;
+          }
+          .auth-side-panel {
+            cursor: default !important;
+          }
+        }
+      `}</style>
+
       <div className="auth-grid">
-        <aside className="auth-side-panel">
+        <aside 
+          className="auth-side-panel"
+          onClick={() => {
+            if (window.innerWidth <= 768) {
+              setMobileView("form");
+            }
+          }}
+        >
           <div className="auth-badge">HelpDeskIT</div>
           <div className="auth-side-content">
+            <style>{`
+              @keyframes spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+              }
+              @keyframes spinReverse {
+                from { transform: rotate(360deg); }
+                to { transform: rotate(0deg); }
+              }
+              .icon-spinner {
+                animation: spin 6s linear infinite;
+              }
+              .icon-spinner-reverse {
+                animation: spinReverse 8s linear infinite;
+              }
+            `}</style>
+            <div className="flex justify-center mb-8">
+              <div style={{
+                position: "relative",
+                width: "200px",
+                height: "200px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center"
+              }}>
+                {/* Spinning outer ring of symbols */}
+                <div className="icon-spinner" style={{
+                  position: "absolute",
+                  width: "200px",
+                  height: "200px"
+                }}>
+                  {/* Gear symbol - top */}
+                  <div style={{
+                    position: "absolute",
+                    top: "-10px",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    fontSize: "24px"
+                  }}>⚙️</div>
+                  {/* Wrench symbol - top right */}
+                  <div style={{
+                    position: "absolute",
+                    top: "15px",
+                    right: "15px",
+                    fontSize: "24px"
+                  }}>🔧</div>
+                  {/* Hammer symbol - right */}
+                  <div style={{
+                    position: "absolute",
+                    top: "50%",
+                    right: "-10px",
+                    transform: "translateY(-50%)",
+                    fontSize: "24px"
+                  }}>🔨</div>
+                  {/* Wrench symbol - bottom right */}
+                  <div style={{
+                    position: "absolute",
+                    bottom: "15px",
+                    right: "15px",
+                    fontSize: "24px"
+                  }}>🔧</div>
+                  {/* Gear symbol - bottom */}
+                  <div style={{
+                    position: "absolute",
+                    bottom: "-10px",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    fontSize: "24px"
+                  }}>⚙️</div>
+                  {/* Wrench symbol - bottom left */}
+                  <div style={{
+                    position: "absolute",
+                    bottom: "15px",
+                    left: "15px",
+                    fontSize: "24px"
+                  }}>🔧</div>
+                  {/* Hammer symbol - left */}
+                  <div style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "-10px",
+                    transform: "translateY(-50%)",
+                    fontSize: "24px"
+                  }}>🔨</div>
+                  {/* Wrench symbol - top left */}
+                  <div style={{
+                    position: "absolute",
+                    top: "15px",
+                    left: "15px",
+                    fontSize: "24px"
+                  }}>🔧</div>
+                </div>
+
+                {/* Center circular image */}
+                <div style={{
+                  position: "relative",
+                  zIndex: 10,
+                  width: "150px",
+                  height: "150px",
+                  borderRadius: "50%",
+                  overflow: "hidden",
+                  border: "4px solid #1f2937",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "#f3f4f6"
+                }}>
+                  <img 
+                    src="/helpdesk-icon.png" 
+                    alt="HelpDesk Icon" 
+                    style={{
+                      width: "120px",
+                      height: "120px",
+                      objectFit: "contain"
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
             <p className="auth-eyebrow">Support operations, simplified</p>
             <h1>Keep your team responsive without the chaos.</h1>
             <p className="auth-subtext">
@@ -142,20 +369,19 @@ Manage tickets, coordinate teams, and keep every escalation moving with a cleare
 ))}
             </div>
 
-            <div className="auth-metric-card">
-<div>
-  <p className="auth-metric-label">Today&apos;s queue</p>
-  <p className="auth-metric-value">18 tickets</p>
-</div>
-<div className="auth-metric-status">
-  <span className="auth-status-dot" />
-  Healthy flow
-</div>
-            </div>
+     
           </div>
         </aside>
 
         <main className="auth-card">
+          <button
+            type="button"
+            onClick={() => setMobileView("panel")}
+            className="mobile-back-button"
+          >
+            <span>←</span>
+            Back to About
+          </button>
           <div className="mb-8 text-center">
             <h2 className="text-3xl font-semibold tracking-tight text-foreground">
 {isSignUp ? "Create your account" : "Welcome back"}

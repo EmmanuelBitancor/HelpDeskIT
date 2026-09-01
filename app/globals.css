@@ -503,11 +503,32 @@ body {
   }
 
   .auth-side-panel {
-    min-height: 280px;
+    min-height: 0;
   }
 
   .dashboard-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .auth-shell {
+    padding: 0.75rem;
+    min-height: 100dvh;
+  }
+
+  .auth-side-panel,
+  .auth-card {
+    min-height: 0;
+    padding: 1.25rem 1rem;
+  }
+
+  .auth-side-content {
+    padding: 0.5rem 0 0;
+  }
+
+  .auth-side-content h1 {
+    font-size: 1.65rem;
   }
 }
 
