@@ -51,13 +51,17 @@ export default function HelpBot() {
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    const nextMessages = [...messages, userMsg];
+    setMessages(nextMessages);
     setInput("");
     setIsTyping(true);
     setError(null);
 
     try {
-      const history = messages.map((m) => ({ role: m.role === "bot" ? "assistant" : m.role, text: m.text }));
+      const history = nextMessages.map((m) => ({
+        role: m.role === "bot" ? "assistant" : "user",
+        text: m.text,
+      }));
 
       const response = await fetch("/api/chatbot", {
         method: "POST",
@@ -89,16 +93,21 @@ export default function HelpBot() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") sendMessage();
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
   };
 
+  const suggestions = ["VPN issue", "Reset password", "New ticket"];
+
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-50 flex flex-col items-end gap-3 sm:left-auto sm:right-6">
+    <div className="fixed bottom-4 left-4 right-4 z-50 flex flex-col items-end gap-3 safe-bottom sm:left-auto sm:right-6">
       {isOpen && (
-        <div className="flex w-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900 sm:w-96">
+        <div className="flex w-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl ring-1 ring-zinc-200/80 dark:border-zinc-700 dark:bg-zinc-900 dark:ring-zinc-700 sm:w-96">
           <div className="flex items-center justify-between bg-foreground px-4 py-3">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/20">
                 <svg
                   className="h-4 w-4 text-white"
                   fill="none"
@@ -115,12 +124,12 @@ export default function HelpBot() {
               </div>
               <div>
                 <p className="text-sm font-semibold text-white">HelpBot</p>
-                <p className="text-xs text-white/60">IT Support Assistant</p>
+                <p className="text-xs text-white/70">Online · IT support</p>
               </div>
             </div>
             <button
               onClick={() => setIsOpen(false)}
-              className="rounded-lg p-1.5 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+              className="rounded-lg p-1.5 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
               aria-label="Close HelpBot"
             >
               <svg
@@ -139,7 +148,7 @@ export default function HelpBot() {
             </button>
           </div>
 
-          <div className="flex h-80 flex-col gap-3 overflow-y-auto p-4">
+          <div className="flex h-64 flex-col gap-3 overflow-y-auto bg-zinc-50/60 p-4 sm:h-80 dark:bg-zinc-950/40">
             {messages.map((msg) => (
               <div
                 key={msg.id}
@@ -148,15 +157,15 @@ export default function HelpBot() {
                 }`}
               >
                 <div
-                  className={`max-w-[80%] whitespace-pre-line rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                  className={`max-w-[80%] whitespace-pre-line rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${
                     msg.role === "user"
                       ? "rounded-br-sm bg-foreground text-background"
-                      : "rounded-bl-sm bg-zinc-100 text-foreground dark:bg-zinc-800"
+                      : "rounded-bl-sm bg-white text-foreground ring-1 ring-zinc-200 dark:bg-zinc-800 dark:ring-zinc-700"
                   }`}
                 >
                   {msg.text}
                 </div>
-                <span className="px-1 text-xs text-zinc-400 dark:text-zinc-500">
+                <span className="px-1 text-[11px] text-zinc-400 dark:text-zinc-500">
                   {formatTime(msg.timestamp)}
                 </span>
               </div>
@@ -164,12 +173,12 @@ export default function HelpBot() {
 
             {isTyping && (
               <div className="flex items-start">
-                <div className="rounded-2xl rounded-bl-sm bg-zinc-100 px-4 py-3 dark:bg-zinc-800">
-                  <div className="flex gap-1">
+                <div className="rounded-2xl rounded-bl-sm bg-white px-4 py-3 shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-800 dark:ring-zinc-700">
+                  <div className="flex gap-1.5">
                     {[0, 1, 2].map((i) => (
                       <span
                         key={i}
-                        className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 dark:bg-zinc-500"
+                        className="h-2 w-2 animate-bounce rounded-full bg-zinc-400 dark:bg-zinc-500"
                         style={{ animationDelay: `${i * 150}ms` }}
                       />
                     ))}
@@ -180,7 +189,7 @@ export default function HelpBot() {
 
             {error && (
               <div className="flex items-start">
-                <div className="rounded-2xl rounded-bl-sm bg-red-50 px-4 py-3 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400" role="alert">
+                <div className="rounded-2xl rounded-bl-sm bg-red-50 px-4 py-3 text-sm text-red-600 shadow-sm ring-1 ring-red-100 dark:bg-red-900/20 dark:text-red-400 dark:ring-red-900/50" role="alert">
                   {error}
                 </div>
               </div>
@@ -189,29 +198,29 @@ export default function HelpBot() {
             <div ref={bottomRef} />
           </div>
 
-          <div className="flex gap-2 overflow-x-auto border-t border-zinc-100 px-4 py-2 dark:border-zinc-800">
-            {["VPN issue", "Reset password", "New ticket"].map((suggestion) => (
+          <div className="flex gap-2 overflow-x-auto border-t border-zinc-100 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900">
+            {suggestions.map((suggestion) => (
               <button
                 key={suggestion}
                 onClick={() => {
                   setInput(suggestion);
                   inputRef.current?.focus();
                 }}
-                className="whitespace-nowrap rounded-full border border-zinc-200 px-3 py-1 text-xs text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
+                className="whitespace-nowrap rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
               >
                 {suggestion}
               </button>
             ))}
           </div>
 
-          <div className="flex items-center gap-2 border-t border-zinc-100 px-4 py-3 dark:border-zinc-800">
+          <div className="flex items-center gap-2 border-t border-zinc-100 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
             <input
               ref={inputRef}
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-               placeholder="Ask HelpBot anything about IT support..."
+              placeholder="Ask HelpBot anything about IT support..."
               disabled={isTyping}
               className="flex-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800 dark:placeholder-zinc-500 disabled:opacity-50"
             />

@@ -29,9 +29,11 @@ interface AuthContextValue {
   signIn: (
     email: string,
     password: string,
+    rememberMe?: boolean,
   ) => Promise<{ ok: boolean; error?: string; role?: Role }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  rememberMe: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -40,6 +42,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
   const [signingOut, setSigningOut] = useState(false);
+  const [rememberMe, setRememberMe] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem("rememberMe") === "true";
+    } catch {
+      return false;
+    }
+  });
   const [sessionId, setSessionId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -105,11 +115,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string, rememberMeOption?: boolean) => {
+    const shouldRemember = rememberMeOption ?? rememberMe;
+
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       await logActivity({ action: "login_failed", details: error.message });
       return { ok: false, error: error.message };
+    }
+
+    // Store remember me preference
+    setRememberMe(shouldRemember);
+    try {
+      if (typeof window !== "undefined") {
+        if (shouldRemember) {
+          localStorage.setItem("rememberMe", "true");
+        } else {
+          localStorage.setItem("rememberMe", "false");
+        }
+      }
+    } catch {
+      // ignore storage errors
     }
 
     const {
@@ -142,6 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await fetch("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ remember_me: shouldRemember }),
       });
       const data = await res.json();
       if (res.ok && data.sessionId) {
@@ -201,12 +228,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // Check session expiry periodically (only for non-remember-me sessions)
+  useEffect(() => {
+    if (!user || !sessionId) return;
+
+    const checkSessionExpiry = async () => {
+      try {
+        const res = await fetch(`/api/sessions/check?session_id=${sessionId}`);
+        const data = await res.json();
+
+        if (data.expired) {
+          // Session has expired, sign out
+          await signOut();
+        }
+      } catch {
+        // Ignore check errors - don't sign out on network errors
+      }
+    };
+
+    // Only check expiry if not remember me mode
+    // For remember me, Supabase handles token refresh automatically
+    if (!rememberMe) {
+      // Check after a delay (don't check immediately on mount)
+      const timeout = setTimeout(checkSessionExpiry, 30 * 1000); // Check after 30 seconds
+
+      // Then check every 5 minutes
+      const interval = setInterval(checkSessionExpiry, 5 * 60 * 1000);
+
+      return () => {
+        clearTimeout(timeout);
+        clearInterval(interval);
+      };
+    }
+  }, [user, sessionId, rememberMe]);
+
   const refreshProfile = async () => {
     await loadProfileRef.current?.();
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signingOut, signIn, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ user, loading, signingOut, signIn, signOut, refreshProfile, rememberMe }}>
       {children}
     </AuthContext.Provider>
   );

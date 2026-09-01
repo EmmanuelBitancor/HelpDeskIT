@@ -524,9 +524,8 @@ export default function AdminDashboard() {
     }
   }, [user, loading]);
 
-  if (loading) return <AdminSkeleton />;
+  if (loading || signingOut) return <AdminSkeleton />;
   if (!user || user.role !== "admin") {
-    if (signingOut) return null;
     return (
       <>
         <AdminSkeleton />
@@ -542,12 +541,12 @@ export default function AdminDashboard() {
   if (isLoading) return <AdminSkeleton />;
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b border-zinc-200 dark:border-zinc-800">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <div className="dashboard-shell">
+      <header className="dashboard-header">
+        <div className="dashboard-header-inner">
           <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 py-2">
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-600 text-white">
+            <div className="dashboard-brand">
+              <div className="dashboard-brand-mark bg-red-600">
                 <svg
                   className="h-5 w-5"
                   fill="none"
@@ -562,19 +561,28 @@ export default function AdminDashboard() {
                   />
                 </svg>
               </div>
-              <div>
-                <h1 className="text-lg font-semibold text-foreground">
-                  HelpDeskIT Admin
-                </h1>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Support Team Management
-                </p>
+              <div className="dashboard-brand-copy">
+                <h1>HelpDeskIT Admin</h1>
+                <p>Support Team Management</p>
               </div>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="dashboard-actions">
+              <div className="hidden items-center gap-2 sm:flex">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-100">
+                  {(user?.name || "A").charAt(0).toUpperCase()}
+                </div>
+                <div className="flex flex-col leading-tight text-left">
+                  <span className="text-sm font-medium text-slate-600 dark:text-slate-200">
+                    {user?.name || "Admin"}
+                  </span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {user?.email ?? "admin@company.com"}
+                  </span>
+                </div>
+              </div>
               <button
                 onClick={openAddStaff}
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="dashboard-action-button"
               >
                 <svg
                   className="h-4 w-4"
@@ -598,7 +606,7 @@ export default function AdminDashboard() {
                     ? `Chat, ${unreadMessages} unread messages`
                     : "Chat"
                 }
-                className="relative inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="dashboard-action-button relative"
               >
                 {unreadMessages > 0 && (
                   <span
@@ -625,7 +633,7 @@ export default function AdminDashboard() {
               </button>
               <button
                 onClick={toggleTheme}
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="dashboard-action-button"
                 aria-label="Toggle theme"
               >
                 {theme === "dark" ? (
@@ -659,16 +667,13 @@ export default function AdminDashboard() {
                 )}
                 <span className="hidden sm:inline">Theme</span>
               </button>
-              <span className="hidden text-sm text-zinc-600 dark:text-zinc-400 sm:inline">
-                {user?.email ?? "admin@company.com"}
-              </span>
               <SignOutButton />
             </div>
           </div>
         </div>
       </header>
-
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+ 
+      <main className="dashboard-body">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-2xl font-semibold text-foreground">
@@ -978,7 +983,7 @@ export default function AdminDashboard() {
 
       {selectedTicket && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+          className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-4 safe-top safe-bottom sm:items-center"
         >
           <div
             ref={ticketDialogRef}
@@ -986,7 +991,7 @@ export default function AdminDashboard() {
             aria-modal="true"
             aria-labelledby="adminTicketDetailTitle"
             tabIndex={-1}
-            className="w-full max-w-lg rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
+            className="my-4 w-full max-w-2xl rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
           >
             <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
               <h3 id="adminTicketDetailTitle" className="text-lg font-semibold text-foreground">
@@ -1020,7 +1025,7 @@ export default function AdminDashboard() {
                   {typeof selectedTicket.description === 'string' ? selectedTicket.description.replace(/\s*\|\s*/g, '\n') : selectedTicket.description}
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
                     Category
@@ -1049,7 +1054,7 @@ export default function AdminDashboard() {
                     {selectedTicket.status.replace("_", " ")}
                   </span>
                 </div>
-                <div>
+                <div className="sm:col-span-2">
                   <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
                     Assigned To
                   </p>
@@ -1058,7 +1063,7 @@ export default function AdminDashboard() {
                     onChange={(e) =>
                       assignTicket(selectedTicket.id, e.target.value)
                     }
-                    className="mt-1 rounded-lg border border-zinc-300 px-2.5 py-1 text-sm text-foreground outline-none focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800"
+                    className="mt-1 block w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-2.5 py-2 text-sm text-foreground outline-none focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800"
                   >
                      <option value="">Awaiting Assignment</option>
                     {staffList.map((staff) => (
@@ -1100,7 +1105,7 @@ export default function AdminDashboard() {
 
       {isStaffFormOpen && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+          className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-4 safe-top safe-bottom sm:items-center"
         >
           <div
             ref={staffDialogRef}
@@ -1108,7 +1113,7 @@ export default function AdminDashboard() {
             aria-modal="true"
             aria-labelledby="adminStaffFormTitle"
             tabIndex={-1}
-            className="w-full max-w-md rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
+            className="my-4 w-full max-w-md rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
           >
             <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
               <h3 id="adminStaffFormTitle" className="text-lg font-semibold text-foreground">

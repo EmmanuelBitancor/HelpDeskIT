@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import NewTicketModal from "./components/NewTicketModal";
 import TicketDetailModal from "./components/TicketDetailModal";
 import KnowledgeBase from "./components/KnowledgeBase";
@@ -16,6 +16,7 @@ import { getCachedData, setCachedData } from "@/lib/cache";
 import { usePagination, Pagination } from "@/components/Pagination";
 import { ticketStatusStyles, priorityStyles } from "@/lib/styles";
 import { formatDate, priorityLabels } from "@/lib/utils";
+import { useTicketMessages } from "@/app/hooks/useTicketMessages";
 import type { Ticket, TicketPriority, SupportStaff } from "../types/ticket";
 import { toAdminTicket as toTicket } from "../types/mappers";
 
@@ -44,6 +45,7 @@ export default function DashboardPage() {
 
   const { user, loading, signingOut, refreshProfile } = useAuth();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const { ticketMessages } = useTicketMessages(user?.id);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -215,6 +217,14 @@ if (ticketsError || staffError) {
 
   const displayedTickets = activeTab === "active" ? activeTickets : pastTickets;
 
+  const preferredChatTicket = useMemo(() => {
+    return [...tickets]
+      .filter((ticket) => (ticket.status === "open" || ticket.status === "in_progress") && ticket.assignedStaff)
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] ?? null;
+  }, [tickets]);
+
+  const totalUnreadTicketMessages = Object.values(ticketMessages).reduce((sum, item) => sum + (item?.unreadCount ?? 0), 0);
+
   const { paginatedItems: paginatedTickets, page: ticketsPage, totalPages: ticketsTotalPages, setPage: setTicketsPage } = usePagination(displayedTickets);
 
   const stats = {
@@ -299,9 +309,8 @@ if (ticketsError || staffError) {
     }
   }, [user, loading]);
 
-  if (loading) return <DashboardSkeleton />;
+  if (loading || signingOut) return <DashboardSkeleton />;
   if (!user || user.role !== "user") {
-    if (signingOut) return null;
     return (
       <>
         <DashboardSkeleton />
@@ -315,12 +324,12 @@ if (ticketsError || staffError) {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b border-zinc-200 dark:border-zinc-800">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-          <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 py-2">
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground text-background">
+    <div className="dashboard-shell">
+      <header className="dashboard-header">
+       <div className="dashboard-header-inner">
+         <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 py-2">
+           <div className="dashboard-brand">
+             <div className="dashboard-brand-mark">
                 <svg
                   className="h-5 w-5"
                   fill="none"
@@ -335,52 +344,66 @@ if (ticketsError || staffError) {
                   />
                 </svg>
               </div>
-              <h1 className="text-lg font-semibold text-foreground">
-                HelpDeskIT
-              </h1>
-            </div>
-            <div className="flex items-center gap-4">
-              <button
-                onClick={toggleTheme}
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                aria-label="Toggle theme"
-              >
-                {theme === "dark" ? (
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M21.75 15.002A9 9 0 1112 2.25a.75.75 0 01.696 1.03 7.5 7.5 0 008.024 10.026.75.75 0 01.03 1.696z"
-                    />
-                  </svg>
-                ) : (
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M12 3v1.5m0 15V21m9-9h-1.5m-15 0H3m15.364 6.364l-1.06-1.06M6.697 6.697l-1.06-1.06m12.728 0l-1.06 1.06M6.697 17.303l-1.06 1.06M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                    />
-                  </svg>
-                )}
-                Theme
-              </button>
-               <button
-                 onClick={() => setIsProfileOpen(true)}
-                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                 aria-label="Profile settings"
-               >
+             <div className="dashboard-brand-copy">
+               <h1>HelpDeskIT</h1>
+               <p>Client Portal</p>
+             </div>
+           </div>
+           <div className="dashboard-actions">
+             <div className="hidden items-center gap-2 sm:flex">
+               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-100">
+                 {(user?.name || "U").charAt(0).toUpperCase()}
+               </div>
+               <div className="flex flex-col leading-tight text-left">
+                 <span className="text-sm font-medium text-slate-600 dark:text-slate-200">
+                   {user?.name || "User"}
+                 </span>
+                 <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                   {user?.email ?? "user@company.com"}
+                 </span>
+               </div>
+             </div>
+             <button
+               onClick={toggleTheme}
+               className="dashboard-action-button"
+               aria-label="Toggle theme"
+             >
+               {theme === "dark" ? (
+                 <svg
+                   className="h-4 w-4"
+                   fill="none"
+                   stroke="currentColor"
+                   strokeWidth={2}
+                   viewBox="0 0 24 24"
+                 >
+                   <path
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     d="M21.75 15.002A9 9 0 1112 2.25a.75.75 0 01.696 1.03 7.5 7.5 0 008.024 10.026.75.75 0 01.03 1.696z"
+                   />
+                 </svg>
+               ) : (
+                 <svg
+                   className="h-4 w-4"
+                   fill="none"
+                   stroke="currentColor"
+                   strokeWidth={2}
+                   viewBox="0 0 24 24"
+                 >
+                   <path
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     d="M12 3v1.5m0 15V21m9-9h-1.5m-15 0H3m15.364 6.364l-1.06-1.06M6.697 6.697l-1.06-1.06m12.728 0l-1.06 1.06M6.697 17.303l-1.06 1.06M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                   />
+                 </svg>
+               )}
+               Theme
+             </button>
+             <button
+               onClick={() => setIsProfileOpen(true)}
+               className="dashboard-action-button"
+               aria-label="Profile settings"
+             >
                  <svg
                    className="h-4 w-4"
                    fill="none"
@@ -396,16 +419,50 @@ if (ticketsError || staffError) {
                  </svg>
                  Profile Settings
                </button>
-               <span className="hidden text-sm text-zinc-600 dark:text-zinc-400 sm:inline">
-                 {user?.email ?? "user@company.com"}
-               </span>
-              <SignOutButton />
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+             <button
+               type="button"
+               onClick={() => {
+                 if (!preferredChatTicket) return;
+                 setChatTicket({
+                   id: preferredChatTicket.id,
+                   subject: preferredChatTicket.subject,
+                   assignedStaff: preferredChatTicket.assignedStaff,
+                 });
+                 setIsChatOpen(true);
+               }}
+               disabled={!preferredChatTicket}
+               aria-label={
+                 totalUnreadTicketMessages > 0
+                   ? `Chat, ${totalUnreadTicketMessages} unread messages`
+                   : "Chat"
+               }
+               className="dashboard-action-button relative disabled:cursor-not-allowed disabled:opacity-60"
+             >
+               {totalUnreadTicketMessages > 0 && (
+                 <span
+                   aria-hidden="true"
+                   className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-medium text-white"
+                 >
+                   {totalUnreadTicketMessages > 9 ? "9+" : totalUnreadTicketMessages}
+                 </span>
+               )}
+               <svg
+                 className="h-4 w-4"
+                 fill="none"
+                 stroke="currentColor"
+                 strokeWidth={2}
+                 viewBox="0 0 24 24"
+               >
+                 <path
+                   strokeLinecap="round"
+                   strokeLinejoin="round"
+                   d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 013 21V12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
+                 />
+               </svg>
+               <span className="hidden sm:inline">Chat</span>
+             </button>
+              <SignOutButton />            </div>          </div>        </div>      </header> 
+      <main className="dashboard-body">
         {error && (
           <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400">
             {error}
@@ -419,19 +476,15 @@ if (ticketsError || staffError) {
             </button>
           </div>
         )}
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="dashboard-hero">
           <div>
-            <h2 className="text-2xl font-semibold text-foreground">
-              Ticket Dashboard
-            </h2>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              Manage and track all your IT support requests in one place.
-            </p>
+            <h2>Ticket Dashboard</h2>
+            <p>Manage and track all your IT support requests in one place.</p>
           </div>
-            <div className="flex items-center gap-3">
+            <div className="dashboard-actions">
               <button
                 onClick={() => setIsKbOpen(true)}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="dashboard-secondary-button"
               >
                 <svg
                   className="h-4 w-4"
@@ -450,7 +503,7 @@ if (ticketsError || staffError) {
               </button>
               <button
                 onClick={() => setIsNewTicketOpen(true)}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2"
+                className="dashboard-primary-button"
               >
                 <svg
                   className="h-4 w-4"
@@ -470,38 +523,22 @@ if (ticketsError || staffError) {
             </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              Open
-            </p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">
-              {stats.open}
-            </p>
+        <div className="dashboard-stat-grid">
+          <div className="dashboard-stat-card">
+            <p className="label">Open</p>
+            <p className="value">{stats.open}</p>
           </div>
-          <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              In Progress
-            </p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">
-              {stats.inProgress}
-            </p>
+          <div className="dashboard-stat-card">
+            <p className="label">In Progress</p>
+            <p className="value">{stats.inProgress}</p>
           </div>
-          <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              Resolved
-            </p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">
-              {stats.resolved}
-            </p>
+          <div className="dashboard-stat-card">
+            <p className="label">Resolved</p>
+            <p className="value">{stats.resolved}</p>
           </div>
-          <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              Total
-            </p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">
-              {stats.total}
-            </p>
+          <div className="dashboard-stat-card">
+            <p className="label">Total</p>
+            <p className="value">{stats.total}</p>
           </div>
         </div>
 
@@ -570,7 +607,11 @@ if (ticketsError || staffError) {
               setSelectedTicket(ticket);
               setIsDetailOpen(true);
             }}
-            className="cursor-pointer rounded-xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
+            className={`cursor-pointer rounded-xl border bg-white p-5 transition-colors dark:bg-zinc-900 ${
+              ticketMessages[ticket.id]?.hasUnread
+                ? "border-blue-300 border-l-4 border-l-blue-500 hover:border-blue-400 dark:border-blue-700 dark:border-l-blue-400 dark:hover:border-blue-600"
+                : "border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700"
+            }`}
           >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex-1">
@@ -645,35 +686,48 @@ if (ticketsError || staffError) {
                           )}
                         </div>
                       </div>
-                      {(ticket.status === "open" || ticket.status === "in_progress") && ticket.assignedStaff && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setChatTicket({
-                              id: ticket.id,
-                              subject: ticket.subject,
-                              assignedStaff: ticket.assignedStaff,
-                            });
-                            setIsChatOpen(true);
-                          }}
-                          className="shrink-0 inline-flex items-center justify-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                        >
-                          <svg
-                            className="h-3.5 w-3.5"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 013 21V12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
-                            />
-                          </svg>
-                          Send Message
-                        </button>
-                      )}
+                       {(ticket.status === "open" || ticket.status === "in_progress") && ticket.assignedStaff && (
+                         <button
+                           onClick={(e) => {
+                             e.stopPropagation();
+                             setChatTicket({
+                               id: ticket.id,
+                               subject: ticket.subject,
+                               assignedStaff: ticket.assignedStaff,
+                             });
+                             setIsChatOpen(true);
+                           }}
+                           className={`dashboard-action-button shrink-0 !px-3 !py-2 !text-[11px] relative ${
+                             ticketMessages[ticket.id]?.hasUnread
+                               ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/40"
+                               : ""
+                           }`}
+                         >
+                           <svg
+                             className="h-3.5 w-3.5"
+                             fill="none"
+                             stroke="currentColor"
+                             strokeWidth={2}
+                             viewBox="0 0 24 24"
+                           >
+                             <path
+                               strokeLinecap="round"
+                               strokeLinejoin="round"
+                               d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 013 21V12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
+                             />
+                           </svg>
+                           {ticketMessages[ticket.id]?.hasUnread ? (
+                             <span className="flex items-center gap-1">
+                               New Message
+                               <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white dark:bg-blue-500">
+                                 {ticketMessages[ticket.id].unreadCount > 9 ? "9+" : ticketMessages[ticket.id].unreadCount}
+                               </span>
+                             </span>
+                           ) : (
+                             "Chat"
+                           )}
+                         </button>
+                       )}
                     </div>
                   </div>
                 ))}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export interface UserInfo {
   id: string;
@@ -33,6 +33,18 @@ export default function NewConversationModal({
 }: NewConversationModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const [search, setSearch] = useState("");
+
+  const filteredRecipients = recipients.filter((recipient) => {
+    const query = search.trim().toLowerCase();
+    if (!query) return true;
+
+    return (
+      recipient.name.toLowerCase().includes(query) ||
+      recipient.email.toLowerCase().includes(query) ||
+      recipient.role.toLowerCase().includes(query)
+    );
+  });
 
   useEffect(() => {
     if (!show) return;
@@ -83,14 +95,14 @@ export default function NewConversationModal({
   if (!show) return null;
 
   return (
-    <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 p-4">
+    <div className="absolute inset-0 z-10 flex items-start justify-center overflow-y-auto bg-black/50 p-4 safe-top safe-bottom sm:items-center">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="newConversationTitle"
         tabIndex={-1}
-        className="w-full max-w-md rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
+        className="my-4 w-full max-w-md rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
           <h3 id="newConversationTitle" className="text-lg font-semibold text-foreground">
@@ -107,21 +119,37 @@ export default function NewConversationModal({
           </button>
         </div>
         <div className="p-6">
-          <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
-            Select a recipient to start a conversation:
-          </p>
-          <div className="max-h-64 space-y-2 overflow-y-auto">
+          <div className="mb-4">
+            <label htmlFor="recipient-search" className="mb-2 block text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+              Search people
+            </label>
+            <input
+              id="recipient-search"
+              type="text"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Name, email, or role"
+              className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800 dark:placeholder-zinc-500"
+            />
+          </div>
+          <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
             {recipients.length === 0 ? (
-              <p className="text-sm text-zinc-400">No available recipients</p>
+              <p className="rounded-lg border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-400 dark:border-zinc-700 dark:bg-zinc-800/60">
+                No available recipients
+              </p>
+            ) : filteredRecipients.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-400 dark:border-zinc-700 dark:bg-zinc-800/60">
+                No matching recipients found
+              </p>
             ) : (
-              recipients.map((recipient) => (
+              filteredRecipients.map((recipient) => (
                 <button
                   key={recipient.id}
                   onClick={() => onSelect(recipient.id)}
-                  className="flex w-full items-center gap-3 rounded-lg border border-zinc-200 p-3 text-left transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  className="flex w-full items-center gap-3 rounded-xl border border-zinc-200 bg-white p-3 text-left transition-all hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:border-zinc-600 dark:hover:bg-zinc-700"
                 >
                   <div
-                    className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-white ${
+                    className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold text-white ${
                       avatarColors[(recipient.name || recipient.email).charCodeAt(0) % avatarColors.length]
                     }`}
                   >
@@ -132,9 +160,9 @@ export default function NewConversationModal({
                       .toUpperCase()
                       .slice(0, 2)}
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{recipient.name}</p>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{recipient.name}</p>
+                    <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">
                       {recipient.role} · {recipient.email}
                     </p>
                   </div>
