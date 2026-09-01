@@ -49,7 +49,7 @@ function ResetPasswordForm() {
 
   if (verifying) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+      <div className="flex min-h-dvh flex-col items-center justify-center bg-background px-4 py-8 safe-top safe-bottom">
         <div className="w-full max-w-md text-center">
           <p className="text-sm text-zinc-500 dark:text-zinc-400">Verifying your reset link...</p>
         </div>
@@ -59,7 +59,7 @@ function ResetPasswordForm() {
 
   if (linkError) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+      <div className="flex min-h-dvh flex-col items-center justify-center bg-background px-4 py-8 safe-top safe-bottom">
         <div className="w-full max-w-md text-center">
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">
             Invalid or Expired Link
@@ -125,7 +125,7 @@ function ResetPasswordForm() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-background px-4 py-8 safe-top safe-bottom">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">
@@ -193,7 +193,7 @@ export default function ResetPasswordPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+        <div className="flex min-h-dvh flex-col items-center justify-center bg-background px-4 py-8 safe-top safe-bottom">
           <div className="w-full max-w-md text-center">
             <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading...</p>
           </div>

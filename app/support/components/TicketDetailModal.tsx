@@ -114,14 +114,14 @@ export default function TicketDetailModal({
   const showNotes = draftStatus === "resolved" || draftStatus === "closed";
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-4 safe-top safe-bottom sm:items-center">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="ticketDetailTitle"
         tabIndex={-1}
-        className="w-full max-w-2xl rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
+        className="my-4 w-full max-w-2xl rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
           <h3 id="ticketDetailTitle" className="text-lg font-semibold text-foreground">

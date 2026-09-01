@@ -57,14 +57,14 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-4 safe-top safe-bottom sm:items-center">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="addUserTitle"
         tabIndex={-1}
-        className="w-full max-w-md rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
+        className="my-4 w-full max-w-md rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
           <h3 id="addUserTitle" className="text-lg font-semibold text-foreground">
@@ -81,7 +81,7 @@ export default function AddUserModal({ isOpen, onClose, onAdded }: AddUserModalP
             </svg>
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-4 p-6">
+        <form onSubmit={handleSubmit} className="modal-scroll max-h-[75vh] space-y-4 p-6 sm:max-h-none">
           <div>
             <label htmlFor="fullName" className="block text-sm font-medium text-foreground">
               Full Name

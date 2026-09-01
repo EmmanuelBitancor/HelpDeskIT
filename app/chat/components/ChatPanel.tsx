@@ -294,24 +294,34 @@ export default function ChatPanel({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-0 safe-top safe-bottom sm:items-center sm:p-4">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="chatPanelTitle"
         tabIndex={-1}
-        className="flex h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
+        className="my-0 flex h-dvh w-full max-w-4xl flex-col overflow-hidden rounded-none bg-white shadow-xl dark:bg-zinc-900 sm:my-4 sm:h-[85vh] sm:rounded-2xl"
       >
-        <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
-          <div className="flex items-center gap-2">
-            <h3 id="chatPanelTitle" className="text-lg font-semibold text-foreground">
-              {title}
-            </h3>
+        <div className="flex items-center justify-between border-b border-zinc-200 bg-gradient-to-r from-zinc-50 to-white px-6 py-4 dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-foreground text-background">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h8M8 14h5m-8 5h12a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div>
+              <h3 id="chatPanelTitle" className="text-lg font-semibold text-foreground">
+                {title}
+              </h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {conversations.length} {conversations.length === 1 ? "conversation" : "conversations"}
+              </p>
+            </div>
             {totalUnread > 0 && (
               <span
                 aria-label={`${totalUnread} unread messages`}
-                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white"
+                className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-medium text-white"
               >
                 {totalUnread > 9 ? "9+" : totalUnread}
               </span>
@@ -343,11 +353,11 @@ export default function ChatPanel({
 
         <div className="flex flex-1 overflow-hidden">
           {/* Conversations list */}
-          <div className="w-64 border-r border-zinc-200 dark:border-zinc-800">
+          <div className="w-64 border-r border-zinc-200 bg-zinc-50/80 dark:border-zinc-800 dark:bg-zinc-950/50">
             <div className="border-b border-zinc-200 p-3 dark:border-zinc-800">
               <button
                 onClick={() => setShowNewConversation(true)}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-foreground px-3 py-2 text-sm font-semibold text-background transition-colors hover:opacity-90"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-foreground px-3 py-2.5 text-sm font-semibold text-background transition-colors hover:opacity-90"
               >
                 <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M18 7.5v6m0 0v6m0-6h6m-6 0H6" />
@@ -407,14 +417,23 @@ export default function ChatPanel({
           <div className="flex flex-1 flex-col">
             {selectedConversation ? (
               <>
-                <div className="border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
-                  <h4 className="text-sm font-semibold text-foreground">
-                    {getConversationTitle(selectedConversation)}
-                  </h4>
+                <div className="border-b border-zinc-200 bg-white px-6 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-sm font-semibold text-foreground">
+                      {getConversationTitle(selectedConversation)}
+                    </h4>
+                    {unreadCounts[selectedConversation.id] ? (
+                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950/60 dark:text-red-300">
+                        {unreadCounts[selectedConversation.id]} unread
+                      </span>
+                    ) : (
+                      <span className="text-[10px] uppercase tracking-[0.15em] text-zinc-400">Ready</span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex-1 overflow-y-auto p-4">
+                <div className="flex-1 overflow-y-auto bg-zinc-50/60 p-4 dark:bg-zinc-950/40">
                   {messages.length === 0 ? (
-                    <div className="flex h-full items-center justify-center text-sm text-zinc-400">
+                    <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white text-sm text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900">
                       No messages yet. Start the conversation!
                     </div>
                   ) : (
@@ -454,7 +473,7 @@ export default function ChatPanel({
                     </div>
                   )}
                 </div>
-                <div className="border-t border-zinc-200 p-4 dark:border-zinc-800">
+                <div className="border-t border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
                   <div className="flex gap-2">
                     <input
                       type="text"
@@ -468,7 +487,7 @@ export default function ChatPanel({
                       }}
                       placeholder="Type a message..."
                       disabled={isSending}
-                      className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800 disabled:opacity-50"
+                      className="flex-1 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800 disabled:opacity-50"
                     />
                     <button
                       onClick={sendMessage}
@@ -480,6 +499,7 @@ export default function ChatPanel({
                       </svg>
                     </button>
                   </div>
+                  {isSending && <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">Sending…</p>}
                 </div>
               </>
             ) : (

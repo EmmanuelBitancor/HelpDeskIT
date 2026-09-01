@@ -17,7 +17,6 @@ import { usePagination, Pagination } from "@/components/Pagination";
 import { ticketStatusStyles, priorityStyles } from "@/lib/styles";
 import { formatDate, getAvatarColor, priorityLabels } from "@/lib/utils";
 import ProfileSettingsModal from "../settings/components/ProfileSettingsModal";
-import ForgotPasswordModal from "../settings/components/ForgotPasswordModal";
 import ChatPanel from "../chat/components/ChatPanel";
 
 const supabase = createClient();
@@ -140,7 +139,6 @@ useEffect(() => {
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
@@ -329,9 +327,8 @@ useEffect(() => {
     }
   }, [user, loading]);
 
-  if (loading) return <SupportSkeleton />;
+  if (loading || signingOut) return <SupportSkeleton />;
   if (!user || user.role !== "support") {
-    if (signingOut) return null;
     return (
       <>
         <SupportSkeleton />
@@ -347,12 +344,12 @@ useEffect(() => {
   if (isLoadingStaff || !currentStaff) return <SupportSkeleton />;
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b border-zinc-200 dark:border-zinc-800">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <div className="dashboard-shell">
+      <header className="dashboard-header">
+        <div className="dashboard-header-inner">
           <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 py-2">
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-600 text-white">
+            <div className="dashboard-brand">
+              <div className="dashboard-brand-mark bg-red-600">
                 <svg
                   className="h-5 w-5"
                   fill="none"
@@ -367,30 +364,33 @@ useEffect(() => {
                   />
                 </svg>
               </div>
-              <div>
-                <h1 className="text-lg font-semibold text-foreground">
-                  HelpDeskIT Support
-                </h1>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Support Staff Dashboard
-                </p>
+              <div className="dashboard-brand-copy">
+                <h1>HelpDeskIT Support</h1>
+                <p>Support Staff Dashboard</p>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <div
-                className={`flex h-7 w-7 items-center justify-center rounded-full ${getAvatarColor(
-                  currentStaff.name,
-                )} text-xs font-semibold text-white`}
-              >
-                {currentStaff.avatar}
+            <div className="dashboard-actions">
+              <div className="hidden items-center gap-2 sm:flex">
+                <div
+                  className={`flex h-7 w-7 items-center justify-center rounded-full ${getAvatarColor(
+                    currentStaff.name,
+                  )} text-xs font-semibold text-white`}
+                >
+                  {currentStaff.avatar}
+                </div>
+                <div className="flex flex-col leading-tight text-left">
+                  <span className="text-sm font-medium text-slate-600 dark:text-slate-200">
+                    {currentStaff.name}
+                  </span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {currentStaff.email}
+                  </span>
+                </div>
               </div>
-              <span className="hidden text-sm font-medium text-foreground sm:inline">
-                {currentStaff.name}
-              </span>
               <button
                 onClick={() => setIsAddUserOpen(true)}
                 aria-label="Add User"
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="dashboard-action-button"
               >
                 <svg
                   className="h-4 w-4"
@@ -410,7 +410,7 @@ useEffect(() => {
               <button
                 onClick={() => setIsProfileOpen(true)}
                 aria-label="Profile"
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="dashboard-action-button"
               >
                 <svg
                   className="h-4 w-4"
@@ -434,7 +434,7 @@ useEffect(() => {
                     ? `Chat, ${unreadMessages} unread messages`
                     : "Chat"
                 }
-                className="relative inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="dashboard-action-button relative"
               >
                 {unreadMessages > 0 && (
                   <span
@@ -461,7 +461,7 @@ useEffect(() => {
               </button>
               <button
                 onClick={toggleTheme}
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="dashboard-action-button"
                 aria-label="Toggle theme"
               >
                 {theme === "dark" ? (
@@ -495,22 +495,13 @@ useEffect(() => {
                 )}
                 Theme
               </button>
-              <span className="hidden text-sm text-zinc-600 dark:text-zinc-400 sm:inline">
-                {currentStaff.email}
-              </span>
-              <button
-                onClick={() => setIsForgotPasswordOpen(true)}
-                className="text-xs text-zinc-500 underline hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
-              >
-                Forgot your password?
-              </button>
               <SignOutButton />
             </div>
           </div>
         </div>
       </header>
-
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+ 
+      <main className="dashboard-body">
         <div className="mb-8 flex flex-col gap-2">
           <h2 className="text-2xl font-semibold text-foreground">
             {`${currentStaff.name}'s Support Dashboard`}
@@ -754,12 +745,6 @@ useEffect(() => {
           onClose={() => setIsProfileOpen(false)}
           initialName={currentStaff.name}
           initialEmail={currentStaff.email}
-        />
-      )}
-      {isForgotPasswordOpen && (
-        <ForgotPasswordModal
-          isOpen={isForgotPasswordOpen}
-          onClose={() => setIsForgotPasswordOpen(false)}
         />
       )}
       {isChatOpen && user?.id && (

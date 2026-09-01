@@ -78,6 +78,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Account not found" }, { status: 404 });
     }
 
+    // Parse request body for remember_me option
+    let rememberMe = false;
+    try {
+      const body = await request.json();
+      rememberMe = body.remember_me === true;
+    } catch {
+      // No body or invalid JSON, default to false
+    }
+
     const sessionId = crypto.randomUUID();
     const userAgent =
       request.headers.get("user-agent")?.slice(0, 120) || "unknown";
@@ -86,7 +95,17 @@ export async function POST(request: NextRequest) {
       request.headers.get("x-real-ip") ||
       null;
 
-    const { error } = await supabase.from("user_sessions").insert({
+    // Calculate expiry: 30 days for remember me, 1 hour for session-only
+    const expiresAt = new Date();
+    if (rememberMe) {
+      expiresAt.setDate(expiresAt.getDate() + 30);
+    } else {
+      expiresAt.setHours(expiresAt.getHours() + 1);
+    }
+
+    // Try to insert with expires_at and remember_me columns
+    // If columns don't exist (migration not run), insert without them
+    const sessionData: Record<string, unknown> = {
       id: sessionId,
       user_id: account.id,
       user_email: account.email,
@@ -97,14 +116,35 @@ export async function POST(request: NextRequest) {
       user_agent: userAgent,
       last_active: new Date().toISOString(),
       created_at: new Date().toISOString(),
-    });
+    };
 
-    if (error) {
-      console.error("Failed to create session:", error);
-      return NextResponse.json({ error: "Failed to create session" }, { status: 500 });
+    // Add optional columns if they exist (after migration)
+    try {
+      sessionData.expires_at = expiresAt.toISOString();
+      sessionData.remember_me = rememberMe;
+      const { error } = await supabase.from("user_sessions").insert(sessionData);
+      if (error) {
+        // If insert fails, try without optional columns
+        delete sessionData.expires_at;
+        delete sessionData.remember_me;
+        const { error: retryError } = await supabase.from("user_sessions").insert(sessionData);
+        if (retryError) {
+          console.error("Failed to create session:", retryError);
+          return NextResponse.json({ error: "Failed to create session" }, { status: 500 });
+        }
+      }
+    } catch {
+      // Fallback: insert without optional columns
+      delete sessionData.expires_at;
+      delete sessionData.remember_me;
+      const { error } = await supabase.from("user_sessions").insert(sessionData);
+      if (error) {
+        console.error("Failed to create session:", error);
+        return NextResponse.json({ error: "Failed to create session" }, { status: 500 });
+      }
     }
 
-    return NextResponse.json({ sessionId });
+    return NextResponse.json({ sessionId, expiresAt: expiresAt.toISOString() });
   } catch (error) {
     console.error("Session create error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
