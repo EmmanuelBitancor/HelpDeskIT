@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import NewTicketModal from "./components/NewTicketModal";
 import TicketDetailModal from "./components/TicketDetailModal";
 import KnowledgeBase from "./components/KnowledgeBase";
@@ -28,6 +28,8 @@ export default function DashboardPage() {
   const [isNewTicketOpen, setIsNewTicketOpen] = useState(false);
   const [isKbOpen, setIsKbOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isChatPickerOpen, setIsChatPickerOpen] = useState(false);
+  const chatPickerRef = useRef<HTMLDivElement | null>(null);
   const [chatTicket, setChatTicket] = useState<{ id: string; subject: string; assignedStaff: Ticket["assignedStaff"] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
@@ -223,7 +225,70 @@ if (ticketsError || staffError) {
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] ?? null;
   }, [tickets]);
 
+  const availableSupportStaff = useMemo(() => {
+    const activeSupportById = new Map<string, SupportStaff>();
+
+    for (const ticket of tickets) {
+      if ((ticket.status === "open" || ticket.status === "in_progress") && ticket.assignedStaff) {
+        const staff = ticket.assignedStaff;
+        activeSupportById.set(staff.id, {
+          id: staff.id,
+          name: staff.name,
+          email: staff.email,
+          role: staff.role,
+          avatar: staff.avatar,
+          active: true,
+        });
+      }
+    }
+
+    return Array.from(activeSupportById.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [tickets]);
+
   const totalUnreadTicketMessages = Object.values(ticketMessages).reduce((sum, item) => sum + (item?.unreadCount ?? 0), 0);
+
+  useEffect(() => {
+    if (!isChatPickerOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (chatPickerRef.current && !chatPickerRef.current.contains(event.target as Node)) {
+        setIsChatPickerOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsChatPickerOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isChatPickerOpen]);
+
+  const openSupportChat = (staff: SupportStaff | undefined) => {
+    if (!staff) return;
+
+    const selectedTicket = preferredChatTicket ?? null;
+    setChatTicket({
+      id: selectedTicket?.id ?? `support-chat-${staff.id}`,
+      subject: selectedTicket?.subject ?? `Support chat with ${staff.name}`,
+      assignedStaff: {
+        id: staff.id,
+        name: staff.name,
+        email: staff.email,
+        role: staff.role,
+        avatar: staff.avatar,
+      },
+    });
+    setIsChatPickerOpen(false);
+    setIsChatOpen(true);
+  };
 
   const { paginatedItems: paginatedTickets, page: ticketsPage, totalPages: ticketsTotalPages, setPage: setTicketsPage } = usePagination(displayedTickets);
 
@@ -232,6 +297,30 @@ if (ticketsError || staffError) {
     inProgress: tickets.filter((t) => t.status === "in_progress").length,
     resolved: tickets.filter((t) => t.status === "resolved").length,
     total: tickets.length,
+  };
+
+  const handleDeleteTicket = async (ticketId: string) => {
+    if (!user?.email) return;
+
+    const matchedTicket = tickets.find((ticket) => ticket.id === ticketId);
+    if (!matchedTicket || matchedTicket.assignedStaff) return;
+
+    const { error } = await supabase
+      .from("tickets")
+      .delete()
+      .eq("id", ticketId)
+      .eq("submitted_by", user.email);
+
+    if (error) {
+      setError(error.message ?? "We couldn't delete this ticket. Please try again.");
+      return;
+    }
+
+    setTickets((prev) => prev.filter((ticket) => ticket.id !== ticketId));
+    setSelectedTicket((prev) => (prev?.id === ticketId ? null : prev));
+    if (selectedTicket?.id === ticketId) {
+      setIsDetailOpen(false);
+    }
   };
 
   const handleNewTicket = async (form: {
@@ -251,37 +340,70 @@ if (ticketsError || staffError) {
       .filter(Boolean)
       .join("\n");
 
+    const buildTicketId = async () => {
+      const { data: ticketIds, error: lookupError } = await supabase.from("tickets").select("id").like("id", "TK-%");
+      if (lookupError) throw lookupError;
+
+      const highestNumber = (ticketIds ?? []).reduce((max, row) => {
+        const value = String(row.id ?? "");
+        if (!/^TK-\d+$/.test(value)) return max;
+        return Math.max(max, Number(value.replace(/^TK-/, "")));
+      }, 0);
+
+      return `TK-${String(highestNumber + 1).padStart(2, "0")}`;
+    };
+
     const now = new Date().toISOString();
-    const ticketId = `TK-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    let lastError: { code?: string; message?: string } | null = null;
 
-    const { data, error } = await supabase
-      .from("tickets")
-      .insert({
-        id: ticketId,
-        subject: form.subject,
-        category: form.category,
-        priority: form.priority,
-        status: "open",
-        description,
-        submitted_by: user.email,
-        created_at: now,
-        updated_at: now,
-      })
-      .select()
-      .single();
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      let ticketId: string;
 
-    if (error) {
-      return { success: false, error: error.message ?? "We couldn't create your ticket. Please try again in a moment." };
+      try {
+        ticketId = await buildTicketId();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to generate the next ticket number.";
+        return { success: false, error: message };
+      }
+
+      const { data, error } = await supabase
+        .from("tickets")
+        .insert({
+          id: ticketId,
+          subject: form.subject,
+          category: form.category,
+          priority: form.priority,
+          status: "open",
+          description,
+          submitted_by: user.email,
+          created_at: now,
+          updated_at: now,
+        })
+        .select()
+        .single();
+
+      if (!error) {
+        setTickets((prev) => [toTicket(data), ...prev]);
+        logActivity({
+          action: "ticket_created",
+          target_type: "ticket",
+          target_id: data.id,
+          details: `Created ticket: ${form.subject}`,
+        }).catch(() => {});
+        return { success: true };
+      }
+
+      lastError = error;
+      const isDuplicateKey = error.code === "23505" || /duplicate key|already exists/i.test(error.message ?? "");
+      if (!isDuplicateKey) {
+        return { success: false, error: error.message ?? "We couldn't create your ticket. Please try again in a moment." };
+      }
     }
 
-    setTickets((prev) => [toTicket(data), ...prev]);
-    logActivity({
-      action: "ticket_created",
-      target_type: "ticket",
-      target_id: data.id,
-      details: `Created ticket: ${form.subject}`,
-    }).catch(() => {});
-    return { success: true };
+    return {
+      success: false,
+      error: lastError?.message ?? "We couldn't create your ticket because the ticket number already exists. Please try again in a moment.",
+    };
   };
 
   const toggleTheme = () => {
@@ -419,50 +541,90 @@ if (ticketsError || staffError) {
                  </svg>
                  Profile Settings
                </button>
-             <button
-               type="button"
-               onClick={() => {
-                 if (!preferredChatTicket) return;
-                 setChatTicket({
-                   id: preferredChatTicket.id,
-                   subject: preferredChatTicket.subject,
-                   assignedStaff: preferredChatTicket.assignedStaff,
-                 });
-                 setIsChatOpen(true);
-               }}
-               disabled={!preferredChatTicket}
-               aria-label={
-                 totalUnreadTicketMessages > 0
-                   ? `Chat, ${totalUnreadTicketMessages} unread messages`
-                   : "Chat"
-               }
-               className="dashboard-action-button relative disabled:cursor-not-allowed disabled:opacity-60"
-             >
-               {totalUnreadTicketMessages > 0 && (
-                 <span
-                   aria-hidden="true"
-                   className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-medium text-white"
-                 >
-                   {totalUnreadTicketMessages > 9 ? "9+" : totalUnreadTicketMessages}
-                 </span>
-               )}
-               <svg
-                 className="h-4 w-4"
-                 fill="none"
-                 stroke="currentColor"
-                 strokeWidth={2}
-                 viewBox="0 0 24 24"
+             <div ref={chatPickerRef} className="relative">
+               <button
+                 type="button"
+                 onClick={() => {
+                   if (availableSupportStaff.length === 0) {
+                     if (preferredChatTicket?.assignedStaff) {
+                       openSupportChat({
+                         id: preferredChatTicket.assignedStaff.id,
+                         name: preferredChatTicket.assignedStaff.name,
+                         email: preferredChatTicket.assignedStaff.email,
+                         role: preferredChatTicket.assignedStaff.role,
+                         avatar: preferredChatTicket.assignedStaff.avatar,
+                         active: true,
+                       });
+                     }
+                     return;
+                   }
+
+                   if (availableSupportStaff.length === 1) {
+                     openSupportChat(availableSupportStaff[0]);
+                     return;
+                   }
+
+                   setIsChatPickerOpen((prev) => !prev);
+                 }}
+                 disabled={availableSupportStaff.length === 0 && !preferredChatTicket?.assignedStaff}
+                 aria-label={
+                   totalUnreadTicketMessages > 0
+                     ? `Chat, ${totalUnreadTicketMessages} unread messages`
+                     : "Chat"
+                 }
+                 className="dashboard-action-button relative disabled:cursor-not-allowed disabled:opacity-60"
                >
-                 <path
-                   strokeLinecap="round"
-                   strokeLinejoin="round"
-                   d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 013 21V12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
-                 />
-               </svg>
-               <span className="hidden sm:inline">Chat</span>
-             </button>
-              <SignOutButton />            </div>          </div>        </div>      </header> 
-      <main className="dashboard-body">
+                 {totalUnreadTicketMessages > 0 && (
+                   <span
+                     aria-hidden="true"
+                     className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-medium text-white"
+                   >
+                     {totalUnreadTicketMessages > 9 ? "9+" : totalUnreadTicketMessages}
+                   </span>
+                 )}
+                 <svg
+                   className="h-4 w-4"
+                   fill="none"
+                   stroke="currentColor"
+                   strokeWidth={2}
+                   viewBox="0 0 24 24"
+                 >
+                   <path
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 013 21V12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
+                   />
+                 </svg>
+                 <span className="hidden sm:inline">Chat</span>
+               </button>
+
+               {isChatPickerOpen && availableSupportStaff.length > 1 && (
+                 <div className="absolute right-0 top-full z-30 mt-2 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                   <div className="border-b border-slate-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:border-zinc-700 dark:text-zinc-400">
+                     Choose support agent
+                   </div>
+                   <div className="max-h-72 overflow-y-auto">
+                     {availableSupportStaff.map((staff) => (
+                       <button
+                         key={staff.id}
+                         type="button"
+                         onClick={() => openSupportChat(staff)}
+                         className="flex w-full items-center gap-3 border-b border-slate-100 px-3 py-2.5 text-left transition-colors last:border-b-0 hover:bg-slate-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                       >
+                         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-sky-100 text-xs font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-200">
+                           {staff.name.charAt(0).toUpperCase()}
+                         </div>
+                         <div className="min-w-0 flex-1">
+                           <div className="truncate text-sm font-medium text-slate-700 dark:text-slate-100">{staff.name}</div>
+                           <div className="truncate text-[11px] text-slate-500 dark:text-zinc-400">{staff.role}</div>
+                         </div>
+                       </button>
+                     ))}
+                   </div>
+                 </div>
+               )}
+             </div>
+              <SignOutButton />            </div>          </div>        </div>      </header>      <main className="dashboard-body">
         {error && (
           <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400">
             {error}
@@ -686,48 +848,75 @@ if (ticketsError || staffError) {
                           )}
                         </div>
                       </div>
-                       {(ticket.status === "open" || ticket.status === "in_progress") && ticket.assignedStaff && (
-                         <button
-                           onClick={(e) => {
-                             e.stopPropagation();
-                             setChatTicket({
-                               id: ticket.id,
-                               subject: ticket.subject,
-                               assignedStaff: ticket.assignedStaff,
-                             });
-                             setIsChatOpen(true);
-                           }}
-                           className={`dashboard-action-button shrink-0 !px-3 !py-2 !text-[11px] relative ${
-                             ticketMessages[ticket.id]?.hasUnread
-                               ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/40"
-                               : ""
-                           }`}
-                         >
-                           <svg
-                             className="h-3.5 w-3.5"
-                             fill="none"
-                             stroke="currentColor"
-                             strokeWidth={2}
-                             viewBox="0 0 24 24"
+                       <div className="flex shrink-0 items-center gap-2">
+                         {(ticket.status === "open" || ticket.status === "in_progress") && !ticket.assignedStaff && (
+                           <button
+                             onClick={(e) => {
+                               e.stopPropagation();
+                               void handleDeleteTicket(ticket.id);
+                             }}
+                             className="dashboard-action-button shrink-0 !px-3 !py-2 !text-[11px] border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/20 dark:text-red-300 dark:hover:bg-red-950/40"
+                             aria-label={`Delete ticket ${ticket.id}`}
                            >
-                             <path
-                               strokeLinecap="round"
-                               strokeLinejoin="round"
-                               d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 013 21V12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
-                             />
-                           </svg>
-                           {ticketMessages[ticket.id]?.hasUnread ? (
-                             <span className="flex items-center gap-1">
-                               New Message
-                               <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white dark:bg-blue-500">
-                                 {ticketMessages[ticket.id].unreadCount > 9 ? "9+" : ticketMessages[ticket.id].unreadCount}
-                               </span>
-                             </span>
-                           ) : (
-                             "Chat"
-                           )}
-                         </button>
-                       )}
+                             Delete
+                           </button>
+                         )}
+
+                         {(ticket.status === "open" || ticket.status === "in_progress") && ticket.assignedStaff && (
+                           <>
+                             <button
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 setChatTicket({
+                                   id: ticket.id,
+                                   subject: ticket.subject,
+                                   assignedStaff: ticket.assignedStaff,
+                                 });
+                                 setIsChatOpen(true);
+                               }}
+                               className={`dashboard-action-button shrink-0 !px-3 !py-2 !text-[11px] relative ${
+                                 ticketMessages[ticket.id]?.hasUnread
+                                   ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/40"
+                                   : ""
+                               }`}
+                             >
+                               <svg
+                                 className="h-3.5 w-3.5"
+                                 fill="none"
+                                 stroke="currentColor"
+                                 strokeWidth={2}
+                                 viewBox="0 0 24 24"
+                               >
+                                 <path
+                                   strokeLinecap="round"
+                                   strokeLinejoin="round"
+                                   d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 013 21V12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
+                                 />
+                               </svg>
+                               {ticketMessages[ticket.id]?.hasUnread ? (
+                                 <span className="flex items-center gap-1">
+                                   New Message
+                                   <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white dark:bg-blue-500">
+                                     {ticketMessages[ticket.id].unreadCount > 9 ? "9+" : ticketMessages[ticket.id].unreadCount}
+                                   </span>
+                                 </span>
+                               ) : (
+                                 "Chat"
+                               )}
+                             </button>
+
+                             <button
+                               onClick={(e) => e.stopPropagation()}
+                               disabled
+                               className="dashboard-action-button shrink-0 !px-3 !py-2 !text-[11px] cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-400 opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-500"
+                               aria-label={`Delete disabled because ${ticket.assignedStaff.name} is assigned`}
+                               title={`Delete disabled because ${ticket.assignedStaff.name} is assigned`}
+                             >
+                               Delete
+                             </button>
+                           </>
+                         )}
+                       </div>
                     </div>
                   </div>
                 ))}

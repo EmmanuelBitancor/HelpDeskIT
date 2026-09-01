@@ -265,24 +265,27 @@ export default function SupportChatModal({
         aria-modal="true"
         aria-labelledby="supportChatTitle"
         tabIndex={-1}
-        className="my-2 flex h-[95vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-700 sm:my-4 sm:h-[85vh]"
+        className="my-2 flex h-[95vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] bg-slate-50 shadow-[0_24px_80px_rgba(14,116,144,0.18)] ring-1 ring-sky-200 dark:bg-zinc-900 dark:ring-zinc-700 sm:my-4 sm:h-[85vh]"
       >
-        <div className="flex items-center justify-between border-b border-zinc-200 bg-gradient-to-r from-zinc-50 to-white px-5 py-4 dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950">
+        <div className="flex items-center justify-between border-b border-sky-100 bg-gradient-to-r from-sky-600 via-blue-600 to-cyan-500 px-5 py-4 text-white shadow-sm">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-foreground text-background shadow-sm">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/12 text-white shadow-sm ring-1 ring-white/30 backdrop-blur-sm">
               <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h8M8 14h5m-8 5h12a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
             </div>
             <div className="min-w-0">
               <div className="mb-1 flex items-center gap-2">
-                <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" aria-label="Support is online" />
-                <h3 id="supportChatTitle" className="truncate text-base font-semibold text-foreground">
-                  {assignedStaff.name}
-                </h3>
+                <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-300" aria-label="Support is online" />
+                <span className="rounded-full border border-white/25 bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-50">
+                  Support
+                </span>
               </div>
-              <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">
-                {ticketSubject}
+              <h3 id="supportChatTitle" className="truncate text-base font-semibold text-white">
+                {assignedStaff.name}
+              </h3>
+              <p className="truncate text-xs text-sky-100">
+                Ticket: {ticketSubject}
               </p>
             </div>
           </div>
@@ -290,7 +293,7 @@ export default function SupportChatModal({
             type="button"
             onClick={onClose}
             aria-label="Close chat"
-            className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+            className="rounded-lg p-1 text-sky-50/90 transition-colors hover:bg-white/10 hover:text-white"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -314,21 +317,21 @@ export default function SupportChatModal({
 
         <div className="flex flex-1 flex-col">
           {isLoading ? (
-            <div className="flex flex-1 items-center justify-center">
+            <div className="flex flex-1 items-center justify-center bg-gradient-to-b from-sky-50 to-white dark:from-zinc-950 dark:to-zinc-900">
               <div className="space-y-3 p-4">
                 {[0, 1, 2].map((i) => (
                   <div key={i} className="space-y-2">
-                    <div className="h-3 w-32 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
-                    <div className="h-3 w-48 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+                    <div className="h-3 w-32 animate-pulse rounded bg-sky-200 dark:bg-zinc-800" />
+                    <div className="h-3 w-48 animate-pulse rounded bg-sky-100 dark:bg-zinc-800" />
                   </div>
                 ))}
               </div>
             </div>
           ) : (
             <>
-              <div className="flex-1 overflow-y-auto bg-zinc-50/60 p-4 dark:bg-zinc-950/40">
+              <div className="flex-1 overflow-y-auto bg-gradient-to-b from-sky-50/70 via-white to-sky-50/60 p-4 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950">
                 {messages.length === 0 ? (
-                  <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white px-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+                  <div className="flex h-full items-center justify-center rounded-3xl border border-dashed border-sky-200 bg-white/80 px-6 text-center text-sm text-slate-600 shadow-inner dark:border-zinc-700 dark:bg-zinc-900/80 dark:text-zinc-300">
                     Start a conversation with {assignedStaff.name}. They&apos;ll get back to you as soon as possible.
                   </div>
                 ) : (
@@ -336,32 +339,32 @@ export default function SupportChatModal({
                     {messages.map((message) => {
                       const isOwn = message.sender_id === currentUser.id;
                       return (
+                        <div
+                          key={message.id}
+                          className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
+                        >
                           <div
-                            key={message.id}
-                            className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
+                            className={`max-w-[78%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${
+                              isOwn
+                                ? "rounded-br-md bg-gradient-to-br from-sky-600 to-blue-600 text-white"
+                                : "rounded-bl-md bg-white text-slate-700 ring-1 ring-sky-100 dark:bg-zinc-800 dark:text-zinc-100 dark:ring-zinc-700"
+                            }`}
                           >
-                            <div
-                              className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${
-                                isOwn
-                                  ? "rounded-br-sm bg-foreground text-background"
-                                  : "rounded-bl-sm bg-white text-foreground ring-1 ring-zinc-200 dark:bg-zinc-800 dark:ring-zinc-700"
+                            {!isOwn && (
+                              <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-sky-600 dark:text-sky-300">
+                                {message.sender_name}
+                              </p>
+                            )}
+                            <p className="whitespace-pre-line">{message.content}</p>
+                            <p
+                              className={`mt-1 text-[11px] ${
+                                isOwn ? "text-sky-100" : "text-slate-400 dark:text-zinc-400"
                               }`}
                             >
-                              {!isOwn && (
-                                <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                                  {message.sender_name}
-                                </p>
-                              )}
-                              <p className="whitespace-pre-line">{message.content}</p>
-                              <p
-                                className={`mt-1 text-xs ${
-                                  isOwn ? "text-white/60" : "text-zinc-400"
-                                }`}
-                              >
-                                {formatTime(message.created_at)}
-                              </p>
-                            </div>
+                              {formatTime(message.created_at)}
+                            </p>
                           </div>
+                        </div>
                       );
                     })}
                     <div ref={messagesEndRef} />
@@ -369,7 +372,7 @@ export default function SupportChatModal({
                 )}
               </div>
 
-              <div className="border-t border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+              <div className="border-t border-sky-100 bg-white/90 p-4 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/90">
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -383,12 +386,12 @@ export default function SupportChatModal({
                     }}
                     placeholder="Type your message here..."
                     disabled={isSending}
-                    className="flex-1 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800 disabled:opacity-50"
+                    className="flex-1 rounded-xl border border-sky-200 bg-sky-50/80 px-3 py-2.5 text-sm text-slate-700 placeholder-slate-400 outline-none transition-colors focus:border-sky-400 focus:ring-2 focus:ring-sky-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-400 disabled:opacity-50"
                   />
                   <button
                     onClick={sendMessage}
                     disabled={!newMessage.trim() || isSending}
-                    className="flex h-9 w-9 items-center justify-center rounded-lg bg-foreground text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
+                    className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-sky-600 to-blue-600 text-white shadow-sm transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-35"
                   >
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.269 20.876L5.999 12zm0 0h7.5" />
@@ -396,7 +399,7 @@ export default function SupportChatModal({
                   </button>
                 </div>
                 {isSending && (
-                  <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Sending…</p>
+                  <p className="mt-2 text-xs text-sky-600 dark:text-sky-300">Sending…</p>
                 )}
               </div>
             </>
