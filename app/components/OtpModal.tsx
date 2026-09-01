@@ -80,33 +80,33 @@ export default function OtpModal({ isOpen, onClose, email, onVerified }: OtpModa
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-4 safe-top safe-bottom sm:items-center">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="otpTitle"
         tabIndex={-1}
-        className="w-full max-w-md rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
+        className="my-4 w-full max-w-md rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
           <h3 id="otpTitle" className="text-lg font-semibold text-foreground">
             Verify Your Email Address
           </h3>
-<button
-             type="button"
-             onClick={handleClose}
-             disabled={busy}
-             aria-label="Close verification dialog"
-             className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-           >
+          <button
+            type="button"
+            onClick={handleClose}
+            disabled={busy}
+            aria-label="Close verification dialog"
+            className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+          >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4 p-6">
+        <form onSubmit={handleSubmit} className="modal-scroll max-h-[75vh] space-y-4 p-6 sm:max-h-none">
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
             We&apos;ve sent a 6-digit verification code to <strong>{email}</strong>. Please enter it below to verify your account.
           </p>

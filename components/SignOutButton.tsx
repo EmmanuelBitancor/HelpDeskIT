@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 
 export default function SignOutButton() {
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { user, signOut, signingOut } = useAuth();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,13 +15,15 @@ export default function SignOutButton() {
   const dialogRef = useRef<HTMLDivElement>(null);
 
   const handleConfirm = async () => {
+    if (signingOut) return;
+
     setError(null);
-    setConfirmOpen(false);
-    router.replace("/");
+
     try {
       await signOut();
+      router.replace("/");
     } catch {
-      // Already redirecting, ignore sign-out errors after navigation started.
+      setError("We couldn't sign you out. Please try again.");
     }
   };
 
@@ -84,7 +86,8 @@ export default function SignOutButton() {
           setError(null);
           setConfirmOpen(true);
         }}
-        className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        disabled={signingOut}
+        className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-70 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
       >
         <svg
           className="h-4 w-4"
@@ -99,7 +102,7 @@ export default function SignOutButton() {
             d="M17.25 10.25V6a2.25 2.25 0 00-2.25-2.25h-5.5A2.25 2.25 0 007.5 6v10.25a2.25 2.25 0 002.25 2.25h5.5a2.25 2.25 0 002.25-2.25V10.25zM12 15V3m0 0l3 3m-3-3l-3 3"
           />
         </svg>
-        Sign Out
+        {signingOut ? "Signing out..." : "Sign Out"}
       </button>
 
       {confirmOpen &&
@@ -139,9 +142,10 @@ export default function SignOutButton() {
                     <button
                       type="button"
                       onClick={handleConfirm}
-                      className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background transition-colors hover:opacity-90"
+                      disabled={signingOut}
+                      className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                      Sign Out
+                      {signingOut ? "Signing out..." : "Sign Out"}
                     </button>
                   </div>
                 </div>

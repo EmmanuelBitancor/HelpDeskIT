@@ -1837,9 +1837,8 @@ export default function SuperAdminDashboard() {
     settings: "System Settings",
   };
 
-if (loading) return <SuperAdminSkeleton />;
+if (loading || signingOut) return <SuperAdminSkeleton />;
   if (!user || user.role !== "superadmin") {
-    if (signingOut) return null;
     return (
       <>
         <SuperAdminSkeleton />
@@ -1853,25 +1852,23 @@ if (loading) return <SuperAdminSkeleton />;
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="dashboard-shell">
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <header className="dashboard-header">
+        <div className="dashboard-header-inner">
           <div className="flex min-h-16 flex-nowrap items-center justify-between gap-2 py-2">
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground text-background">
+            <div className="dashboard-brand">
+              <div className="dashboard-brand-mark">
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6a2.25 2.25 0 00-2.25-2.25H6A2.25 2.25 0 003.75 6v8.25A2.25 2.25 0 006 16.5h.75m3 3h.75m-3 3v.75m0 0h.75m-3 0h.75" />
                 </svg>
               </div>
-              <div>
-                <h1 className="text-lg font-semibold text-foreground">
-                  HelpDeskIT
-                </h1>
-                <p className="text-xs text-zinc-400">Superadmin Console</p>
+              <div className="dashboard-brand-copy">
+                <h1>HelpDeskIT</h1>
+                <p>Superadmin Console</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="dashboard-actions">
               {/* Alerts */}
               {errorCount > 0 && (
                 <button
@@ -1900,7 +1897,7 @@ if (loading) return <SuperAdminSkeleton />;
               )}
               <button
                 onClick={toggleTheme}
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="dashboard-action-button"
                 aria-label="Toggle theme"
               >
                 {theme === "dark" ? (
@@ -1915,7 +1912,7 @@ if (loading) return <SuperAdminSkeleton />;
               </button>
               <button
                 onClick={() => setIsChatOpen(true)}
-                className="relative inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="dashboard-action-button relative"
               >
                 {unreadMessages > 0 && (
                   <span className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs font-medium text-white">
@@ -1937,6 +1934,19 @@ if (loading) return <SuperAdminSkeleton />;
                 </svg>
                 <span className="hidden sm:inline">Chat</span>
               </button>
+              <div className="hidden items-center gap-2 sm:flex">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-100">
+                  {(user?.name || "S").charAt(0).toUpperCase()}
+                </div>
+                <div className="flex flex-col leading-tight text-left">
+                  <span className="text-sm font-medium text-slate-600 dark:text-slate-200">
+                    {user?.name || "Super Admin"}
+                  </span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {user?.email || "admin@company.com"}
+                  </span>
+                </div>
+              </div>
               <SignOutButton />
             </div>
           </div>
@@ -2108,7 +2118,7 @@ if (loading) return <SuperAdminSkeleton />;
       )}
       {selectedTicket && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+          className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-4 safe-top safe-bottom sm:items-center"
           onClick={() => setSelectedTicket(null)}
         >
           <div
@@ -2118,7 +2128,7 @@ if (loading) return <SuperAdminSkeleton />;
             aria-labelledby="superAdminTicketDetailTitle"
             tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-lg rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
+            className="my-4 w-full max-w-lg rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
           >
             <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
               <h3 id="superAdminTicketDetailTitle" className="text-lg font-semibold text-foreground">

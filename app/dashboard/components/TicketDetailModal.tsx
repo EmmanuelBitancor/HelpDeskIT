@@ -106,7 +106,7 @@ export default function TicketDetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-4 safe-top safe-bottom sm:items-center"
       onClick={onClose}
     >
       <div
@@ -116,7 +116,7 @@ export default function TicketDetailModal({
         aria-labelledby="ticketDetailTitle"
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-3xl rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
+        className="my-4 w-full max-w-3xl rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
           <h3 id="ticketDetailTitle" className="text-lg font-semibold text-foreground">

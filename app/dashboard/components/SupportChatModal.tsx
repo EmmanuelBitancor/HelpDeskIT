@@ -213,7 +213,7 @@ export default function SupportChatModal({
     return () => {
       mounted = false;
     };
-  }, [conversation]);
+  }, [conversation, refreshNotifications]);
 
   const sendMessage = async () => {
     if (!newMessage.trim() || !conversation || isSending) return;
@@ -258,23 +258,33 @@ export default function SupportChatModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-2 safe-top safe-bottom sm:items-center sm:p-4">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="supportChatTitle"
         tabIndex={-1}
-        className="flex h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-zinc-900"
+        className="my-2 flex h-[95vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-700 sm:my-4 sm:h-[85vh]"
       >
-        <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
-          <div className="min-w-0">
-            <h3 id="supportChatTitle" className="truncate text-base font-semibold text-foreground">
-              {assignedStaff.name}
-            </h3>
-            <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">
-              {ticketSubject}
-            </p>
+        <div className="flex items-center justify-between border-b border-zinc-200 bg-gradient-to-r from-zinc-50 to-white px-5 py-4 dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-foreground text-background shadow-sm">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h8M8 14h5m-8 5h12a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <div className="mb-1 flex items-center gap-2">
+                <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" aria-label="Support is online" />
+                <h3 id="supportChatTitle" className="truncate text-base font-semibold text-foreground">
+                  {assignedStaff.name}
+                </h3>
+              </div>
+              <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">
+                {ticketSubject}
+              </p>
+            </div>
           </div>
           <button
             type="button"
@@ -316,9 +326,9 @@ export default function SupportChatModal({
             </div>
           ) : (
             <>
-              <div className="flex-1 overflow-y-auto p-4">
+              <div className="flex-1 overflow-y-auto bg-zinc-50/60 p-4 dark:bg-zinc-950/40">
                 {messages.length === 0 ? (
-                  <div className="flex h-full items-center justify-center text-sm text-zinc-400">
+                  <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white px-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
                     Start a conversation with {assignedStaff.name}. They&apos;ll get back to you as soon as possible.
                   </div>
                 ) : (
@@ -331,10 +341,10 @@ export default function SupportChatModal({
                             className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
                           >
                             <div
-                              className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                              className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${
                                 isOwn
                                   ? "rounded-br-sm bg-foreground text-background"
-                                  : "rounded-bl-sm bg-zinc-100 text-foreground dark:bg-zinc-800"
+                                  : "rounded-bl-sm bg-white text-foreground ring-1 ring-zinc-200 dark:bg-zinc-800 dark:ring-zinc-700"
                               }`}
                             >
                               {!isOwn && (
@@ -359,7 +369,7 @@ export default function SupportChatModal({
                 )}
               </div>
 
-              <div className="border-t border-zinc-200 p-4 dark:border-zinc-800">
+              <div className="border-t border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -371,9 +381,9 @@ export default function SupportChatModal({
                         sendMessage();
                       }
                     }}
-                     placeholder="Type your message here..."
+                    placeholder="Type your message here..."
                     disabled={isSending}
-                    className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800 disabled:opacity-50"
+                    className="flex-1 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-800 disabled:opacity-50"
                   />
                   <button
                     onClick={sendMessage}
@@ -385,6 +395,9 @@ export default function SupportChatModal({
                     </svg>
                   </button>
                 </div>
+                {isSending && (
+                  <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Sending…</p>
+                )}
               </div>
             </>
           )}
