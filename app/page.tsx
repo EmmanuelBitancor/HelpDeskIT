@@ -40,10 +40,17 @@ export default function Home() {
     }
   }, [pathname, router, user?.role]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setEmail(e.target.value);
-    setError("");
-  };
+  // FIX 1: Centralized field change handler that always clears the error.
+  // Previously, only the email field cleared the error on change. Name,
+  // password, and confirmPassword used inline handlers that never called
+  // setError(""), so validation errors would persist even after the user
+  // corrected them.
+  const handleFieldChange =
+    (setter: React.Dispatch<React.SetStateAction<string>>) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setter(e.target.value);
+      setError("");
+    };
 
   const handleOtpVerified = async () => {
     setIsOtpModalOpen(false);
@@ -55,7 +62,10 @@ export default function Home() {
       if (result.ok && result.role) {
         router.replace(roleRoutes[result.role]);
       } else {
-        setError(result.error ?? "Your account was created, but we couldn't sign you in automatically. Please sign in manually.");
+        setError(
+          result.error ??
+            "Your account was created, but we couldn't sign you in automatically. Please sign in manually."
+        );
       }
     } catch {
       setError("An unexpected error occurred");
@@ -85,7 +95,9 @@ export default function Home() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setError(data.error || "We couldn't create your account. Please try again.");
+        setError(
+          data.error || "We couldn't create your account. Please try again."
+        );
         setIsLoading(false);
         return;
       }
@@ -94,7 +106,9 @@ export default function Home() {
       setSignupPassword(password);
       setIsOtpModalOpen(true);
     } catch {
-      setError("An unexpected error occurred. Please refresh the page and try again.");
+      setError(
+        "An unexpected error occurred. Please refresh the page and try again."
+      );
     }
 
     setIsLoading(false);
@@ -133,13 +147,13 @@ export default function Home() {
           }
           to {
             opacity: 1;
-            transform: translateX(-50%) translateY(-50%);
+            transform: translateY(-50%);
           }
         }
         @keyframes slideOutLeft {
           from {
             opacity: 1;
-            transform: translateX(-50%) translateY(-50%);
+            transform: translateY(-50%);
           }
           to {
             opacity: 0;
@@ -153,13 +167,13 @@ export default function Home() {
           }
           to {
             opacity: 1;
-            transform: translateX(-50%) translateY(-50%);
+            transform: translateY(-50%);
           }
         }
         @keyframes slideOutRight {
           from {
             opacity: 1;
-            transform: translateX(-50%) translateY(-50%);
+            transform: translateY(-50%);
           }
           to {
             opacity: 0;
@@ -172,13 +186,15 @@ export default function Home() {
             align-items: center;
             justify-content: center;
             position: relative;
-            min-height: 100vh;
+            overflow-x: hidden;
           }
           .auth-side-panel {
-            position: absolute;
+            position: fixed;
             top: 50%;
-            left: 50%;
-            transform: translateX(-50%) translateY(-50%);
+            left: 0;
+            right: 0;
+            transform: translateY(-50%);
+            margin: 0 auto;
             width: 90%;
             max-width: 400px;
             ${mobileView === "panel" ? "animation: slideInLeft 0.4s ease-out forwards;" : "animation: slideOutLeft 0.4s ease-out forwards; pointer-events: none;"}
@@ -188,10 +204,14 @@ export default function Home() {
             opacity: 0.9;
           }
           .auth-card {
-            position: absolute;
+            position: fixed;
             top: 50%;
-            left: 50%;
-            transform: translateX(-50%) translateY(-50%);
+            left: 0;
+            right: 0;
+            transform: translateY(-50%);
+            margin: 0 auto;
+            max-height: calc(100vh - 2rem);
+            overflow-y: auto;
             width: 90%;
             max-width: 400px;
             ${mobileView === "form" ? "animation: slideInRight 0.4s ease-out forwards;" : "animation: slideOutRight 0.4s ease-out forwards; pointer-events: none;"}
@@ -226,7 +246,7 @@ export default function Home() {
       `}</style>
 
       <div className="auth-grid">
-        <aside 
+        <aside
           className="auth-side-panel"
           onClick={() => {
             if (window.innerWidth <= 768) {
@@ -253,103 +273,142 @@ export default function Home() {
               }
             `}</style>
             <div className="flex justify-center mb-8">
-              <div style={{
-                position: "relative",
-                width: "200px",
-                height: "200px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center"
-              }}>
-                {/* Spinning outer ring of symbols */}
-                <div className="icon-spinner" style={{
-                  position: "absolute",
-                  width: "200px",
-                  height: "200px"
-                }}>
-                  {/* Gear symbol - top */}
-                  <div style={{
-                    position: "absolute",
-                    top: "-10px",
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    fontSize: "24px"
-                  }}>⚙️</div>
-                  {/* Wrench symbol - top right */}
-                  <div style={{
-                    position: "absolute",
-                    top: "15px",
-                    right: "15px",
-                    fontSize: "24px"
-                  }}>🔧</div>
-                  {/* Hammer symbol - right */}
-                  <div style={{
-                    position: "absolute",
-                    top: "50%",
-                    right: "-10px",
-                    transform: "translateY(-50%)",
-                    fontSize: "24px"
-                  }}>🔨</div>
-                  {/* Wrench symbol - bottom right */}
-                  <div style={{
-                    position: "absolute",
-                    bottom: "15px",
-                    right: "15px",
-                    fontSize: "24px"
-                  }}>🔧</div>
-                  {/* Gear symbol - bottom */}
-                  <div style={{
-                    position: "absolute",
-                    bottom: "-10px",
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    fontSize: "24px"
-                  }}>⚙️</div>
-                  {/* Wrench symbol - bottom left */}
-                  <div style={{
-                    position: "absolute",
-                    bottom: "15px",
-                    left: "15px",
-                    fontSize: "24px"
-                  }}>🔧</div>
-                  {/* Hammer symbol - left */}
-                  <div style={{
-                    position: "absolute",
-                    top: "50%",
-                    left: "-10px",
-                    transform: "translateY(-50%)",
-                    fontSize: "24px"
-                  }}>🔨</div>
-                  {/* Wrench symbol - top left */}
-                  <div style={{
-                    position: "absolute",
-                    top: "15px",
-                    left: "15px",
-                    fontSize: "24px"
-                  }}>🔧</div>
-                </div>
-
-                {/* Center circular image */}
-                <div style={{
+              <div
+                style={{
                   position: "relative",
-                  zIndex: 10,
-                  width: "150px",
-                  height: "150px",
-                  borderRadius: "50%",
-                  overflow: "hidden",
-                  border: "4px solid #1f2937",
+                  width: "200px",
+                  height: "200px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: "#f3f4f6"
-                }}>
-                  <img 
-                    src="/helpdesk-icon.png" 
-                    alt="HelpDesk Icon" 
+                }}
+              >
+                {/* Spinning outer ring of symbols */}
+                <div
+                  className="icon-spinner"
+                  style={{
+                    position: "absolute",
+                    width: "200px",
+                    height: "200px",
+                  }}
+                >
+                  {/* Gear symbol - top */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "-10px",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      fontSize: "24px",
+                    }}
+                  >
+                    ⚙️
+                  </div>
+                  {/* Wrench symbol - top right */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "15px",
+                      right: "15px",
+                      fontSize: "24px",
+                    }}
+                  >
+                    🔧
+                  </div>
+                  {/* Hammer symbol - right */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "50%",
+                      right: "-10px",
+                      transform: "translateY(-50%)",
+                      fontSize: "24px",
+                    }}
+                  >
+                    🔨
+                  </div>
+                  {/* Wrench symbol - bottom right */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: "15px",
+                      right: "15px",
+                      fontSize: "24px",
+                    }}
+                  >
+                    🔧
+                  </div>
+                  {/* Gear symbol - bottom */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: "-10px",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      fontSize: "24px",
+                    }}
+                  >
+                    ⚙️
+                  </div>
+                  {/* Wrench symbol - bottom left */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: "15px",
+                      left: "15px",
+                      fontSize: "24px",
+                    }}
+                  >
+                    🔧
+                  </div>
+                  {/* Hammer symbol - left */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "50%",
+                      left: "-10px",
+                      transform: "translateY(-50%)",
+                      fontSize: "24px",
+                    }}
+                  >
+                    🔨
+                  </div>
+                  {/* Wrench symbol - top left */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "15px",
+                      left: "15px",
+                      fontSize: "24px",
+                    }}
+                  >
+                    🔧
+                  </div>
+                </div>
+
+                {/* Center circular image */}
+                <div
+                  style={{
+                    position: "relative",
+                    zIndex: 10,
+                    width: "150px",
+                    height: "150px",
+                    borderRadius: "50%",
+                    overflow: "hidden",
+                    border: "4px solid #1f2937",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: "#f3f4f6",
+                  }}
+                >
+                  <img
+                    src="/helpdesk-icon.png"
+                    alt="HelpDesk Icon"
                     style={{
                       width: "120px",
                       height: "120px",
-                      objectFit: "contain"
+                      objectFit: "contain",
                     }}
                   />
                 </div>
@@ -358,18 +417,17 @@ export default function Home() {
             <p className="auth-eyebrow">Support operations, simplified</p>
             <h1>Keep your team responsive without the chaos.</h1>
             <p className="auth-subtext">
-Manage tickets, coordinate teams, and keep every escalation moving with a clearer view of service health.
+              Manage tickets, coordinate teams, and keep every escalation moving
+              with a clearer view of service health.
             </p>
 
             <div className="auth-pill-row">
-{trustHighlights.map((item) => (
-  <span key={item} className="auth-pill">
-    {item}
-  </span>
-))}
+              {trustHighlights.map((item) => (
+                <span key={item} className="auth-pill">
+                  {item}
+                </span>
+              ))}
             </div>
-
-     
           </div>
         </aside>
 
@@ -384,195 +442,302 @@ Manage tickets, coordinate teams, and keep every escalation moving with a cleare
           </button>
           <div className="mb-8 text-center">
             <h2 className="text-3xl font-semibold tracking-tight text-foreground">
-{isSignUp ? "Create your account" : "Welcome back"}
+              {isSignUp ? "Create your account" : "Welcome back"}
             </h2>
             <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-{isSignUp ? "Set up your workspace and start supporting your users." : "Sign in to your HelpDeskIT account to continue."}
+              {isSignUp
+                ? "Set up your workspace and start supporting your users."
+                : "Sign in to your HelpDeskIT account to continue."}
             </p>
           </div>
 
           <div className="mb-6 flex justify-center">
             <div className="auth-toggle">
-<button
-  type="button"
-  onClick={() => {
-    setIsSignUp(false);
-    setError("");
-  }}
-  className={`auth-toggle-button ${!isSignUp ? "is-active" : ""}`}
->
-  Sign In
-</button>
-<button
-  type="button"
-  onClick={() => {
-    setIsSignUp(true);
-    setError("");
-  }}
-  className={`auth-toggle-button ${isSignUp ? "is-active" : ""}`}
->
-  Sign Up
-</button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSignUp(false);
+                  setError("");
+                }}
+                className={`auth-toggle-button ${!isSignUp ? "is-active" : ""}`}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSignUp(true);
+                  setError("");
+                }}
+                className={`auth-toggle-button ${isSignUp ? "is-active" : ""}`}
+              >
+                Sign Up
+              </button>
             </div>
           </div>
 
-          <form onSubmit={isSignUp ? handleSignUp : handleSubmit} className="space-y-4">
+          <form
+            onSubmit={isSignUp ? handleSignUp : handleSubmit}
+            className="space-y-4"
+          >
             {isSignUp && (
-<div>
-  <label htmlFor="name" className="block text-sm font-medium text-foreground">
-    Full Name
-  </label>
-  <input
-    id="name"
-    type="text"
-    autoComplete="name"
-    required
-    value={name}
-    onChange={(e) => setName(e.target.value)}
-    className="auth-input mt-1"
-    placeholder="Enter your full name"
-  />
-</div>
+              <div>
+                <label
+                  htmlFor="name"
+                  className="block text-sm font-medium text-foreground"
+                >
+                  Full Name
+                </label>
+                <input
+                  id="name"
+                  type="text"
+                  autoComplete="name"
+                  required
+                  value={name}
+                  // FIX 1 applied: was `(e) => setName(e.target.value)` — never cleared the error
+                  onChange={handleFieldChange(setName)}
+                  className="auth-input mt-1"
+                  placeholder="Enter your full name"
+                />
+              </div>
             )}
 
             <div>
-<label htmlFor="email" className="block text-sm font-medium text-foreground">
-  Email Address
-</label>
-<input
-  id="email"
-  type="email"
-  autoComplete="username"
-  required
-  value={email}
-  onChange={handleChange}
-  className="auth-input mt-1"
-  placeholder="you@company.com"
-/>
+              <label
+                htmlFor="email"
+                className="block text-sm font-medium text-foreground"
+              >
+                Email Address
+              </label>
+              <input
+                id="email"
+                type="email"
+                autoComplete="username"
+                required
+                value={email}
+                // FIX 1 applied: unified with handleFieldChange (was a separate handleChange)
+                onChange={handleFieldChange(setEmail)}
+                className="auth-input mt-1"
+                placeholder="you@company.com"
+              />
             </div>
 
             <div>
-<label htmlFor="password" className="block text-sm font-medium text-foreground">
-  Password
-</label>
-<div className="relative mt-1">
-  <input
-    id="password"
-    type={showPassword ? "text" : "password"}
-    autoComplete={isSignUp ? "new-password" : "current-password"}
-    required
-    value={password}
-    onChange={(e) => setPassword(e.target.value)}
-    className="auth-input block w-full pr-10"
-    placeholder="Enter your password"
-  />
-  <button
-    type="button"
-    aria-label={showPassword ? "Hide password" : "Show password"}
-    onClick={() => setShowPassword((v) => !v)}
-    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-zinc-500 hover:text-foreground dark:text-zinc-400 dark:hover:text-zinc-200 focus:outline-none"
-  >
-    {showPassword ? (
-      <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
-      </svg>
-    ) : (
-      <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    )}
-  </button>
-</div>
+              <label
+                htmlFor="password"
+                className="block text-sm font-medium text-foreground"
+              >
+                Password
+              </label>
+              <div className="relative mt-1">
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete={isSignUp ? "new-password" : "current-password"}
+                  required
+                  value={password}
+                  // FIX 1 applied: was `(e) => setPassword(e.target.value)` — never cleared the error
+                  onChange={handleFieldChange(setPassword)}
+                  className="auth-input block w-full pr-10"
+                  placeholder="Enter your password"
+                />
+                <button
+                  type="button"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-zinc-500 hover:text-foreground dark:text-zinc-400 dark:hover:text-zinc-200 focus:outline-none"
+                >
+                  {/* FIX 2: Icon logic was inverted. The crossed-out eye (password hidden)
+                      should show when showPassword is false so the user knows clicking
+                      will reveal the password. The plain eye shows when visible. */}
+                  {showPassword ? (
+                    // Password is visible → show plain eye (clicking will hide it)
+                    <svg
+                      className="h-5 w-5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                      />
+                    </svg>
+                  ) : (
+                    // Password is hidden → show crossed-out eye (clicking will reveal it)
+                    <svg
+                      className="h-5 w-5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3 3l18 18"
+                      />
+                    </svg>
+                  )}
+                </button>
+              </div>
             </div>
 
             {isSignUp && (
-<div>
-  <label htmlFor="confirmPassword" className="block text-sm font-medium text-foreground">
-    Confirm Password
-  </label>
-  <div className="relative mt-1">
-    <input
-      id="confirmPassword"
-      type={confirmShowPassword ? "text" : "password"}
-      autoComplete="new-password"
-      required
-      value={confirmPassword}
-      onChange={(e) => setConfirmPassword(e.target.value)}
-      className="auth-input block w-full pr-10"
-      placeholder="Re-enter your password"
-    />
-    <button
-      type="button"
-      aria-label={confirmShowPassword ? "Hide password" : "Show password"}
-      onClick={() => setConfirmShowPassword((v) => !v)}
-      className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-zinc-500 hover:text-foreground dark:text-zinc-400 dark:hover:text-zinc-200 focus:outline-none"
-    >
-      {confirmShowPassword ? (
-        <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7z" />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
-        </svg>
-      ) : (
-        <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7z" />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-      )}
-    </button>
-  </div>
-</div>
+              <div>
+                <label
+                  htmlFor="confirmPassword"
+                  className="block text-sm font-medium text-foreground"
+                >
+                  Confirm Password
+                </label>
+                <div className="relative mt-1">
+                  <input
+                    id="confirmPassword"
+                    type={confirmShowPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    required
+                    value={confirmPassword}
+                    // FIX 1 applied: was `(e) => setConfirmPassword(e.target.value)` — never cleared the error
+                    onChange={handleFieldChange(setConfirmPassword)}
+                    className="auth-input block w-full pr-10"
+                    placeholder="Re-enter your password"
+                  />
+                  <button
+                    type="button"
+                    aria-label={
+                      confirmShowPassword ? "Hide password" : "Show password"
+                    }
+                    onClick={() => setConfirmShowPassword((v) => !v)}
+                    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-zinc-500 hover:text-foreground dark:text-zinc-400 dark:hover:text-zinc-200 focus:outline-none"
+                  >
+                    {/* FIX 2 applied here too: same inverted icon logic as the password field above */}
+                    {confirmShowPassword ? (
+                      // Password is visible → show plain eye (clicking will hide it)
+                      <svg
+                        className="h-5 w-5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                        />
+                      </svg>
+                    ) : (
+                      // Password is hidden → show crossed-out eye (clicking will reveal it)
+                      <svg
+                        className="h-5 w-5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M3 3l18 18"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </div>
             )}
 
             {!isSignUp && (
-<div className="flex items-center">
-  <input
-    id="rememberMe"
-    type="checkbox"
-    checked={rememberMe}
-    onChange={(e) => setRememberMe(e.target.checked)}
-    className="h-4 w-4 rounded border-zinc-300 text-foreground focus:ring-foreground focus:ring-offset-0 dark:border-zinc-700 dark:bg-zinc-900"
-  />
-  <label htmlFor="rememberMe" className="ml-2 block cursor-pointer select-none text-sm text-zinc-600 dark:text-zinc-400">
-    Stay logged in
-  </label>
-</div>
+              <div className="flex items-center">
+                <input
+                  id="rememberMe"
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="h-4 w-4 rounded border-zinc-300 text-foreground focus:ring-foreground focus:ring-offset-0 dark:border-zinc-700 dark:bg-zinc-900"
+                />
+                <label
+                  htmlFor="rememberMe"
+                  className="ml-2 block cursor-pointer select-none text-sm text-zinc-600 dark:text-zinc-400"
+                >
+                  Stay logged in
+                </label>
+              </div>
             )}
 
             {error && (
-<p role="alert" className="text-sm text-red-600 dark:text-red-400">
-  {error}
-</p>
+              <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+                {error}
+              </p>
             )}
 
             <button
-type="submit"
-disabled={isSubmitting}
-className="auth-primary-button"
+              type="submit"
+              disabled={isSubmitting}
+              className="auth-primary-button"
             >
-{isSubmitting ? (isSignUp ? "Creating your account..." : "Signing you in...") : isSignUp ? "Create Account" : "Sign In"}
+              {isSubmitting
+                ? isSignUp
+                  ? "Creating your account..."
+                  : "Signing you in..."
+                : isSignUp
+                ? "Create Account"
+                : "Sign In"}
             </button>
 
             {!isSignUp && (
-<div className="text-center">
-  <button
-    type="button"
-    onClick={() => setIsForgotPasswordOpen(true)}
-    className="text-sm font-medium text-foreground underline hover:no-underline"
-  >
-    Forgot your password?
-  </button>
-</div>
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => setIsForgotPasswordOpen(true)}
+                  className="text-sm font-medium text-foreground underline hover:no-underline"
+                >
+                  Forgot your password?
+                </button>
+              </div>
             )}
           </form>
         </main>
       </div>
 
       {isForgotPasswordOpen && (
-        <ForgotPasswordModal isOpen={isForgotPasswordOpen} onClose={() => setIsForgotPasswordOpen(false)} />
+        <ForgotPasswordModal
+          isOpen={isForgotPasswordOpen}
+          onClose={() => setIsForgotPasswordOpen(false)}
+        />
       )}
       <OtpModal
         isOpen={isOtpModalOpen}
