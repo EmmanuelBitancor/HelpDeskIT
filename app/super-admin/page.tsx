@@ -1853,6 +1853,106 @@ if (loading || signingOut) return <SuperAdminSkeleton />;
 
   return (
     <div className="dashboard-shell">
+      <style>{`
+        @media (max-width: 768px) {
+          .dashboard-header .flex.min-h-16 {
+            flex-wrap: wrap !important;
+            min-height: auto !important;
+            gap: 0.5rem !important;
+            padding: 0.5rem 0 !important;
+          }
+          .dashboard-header-inner {
+            padding: 0.25rem 0.75rem !important;
+          }
+          .dashboard-brand-copy {
+            display: none !important;
+          }
+          .dashboard-action-button {
+            padding: 0.4rem 0.6rem !important;
+            font-size: 0.7rem !important;
+          }
+          .dashboard-actions {
+            width: 100% !important;
+            justify-content: flex-start !important;
+            gap: 0.4rem !important;
+          }
+          .dashboard-shell .h-64 {
+            height: 10rem !important;
+          }
+          .dashboard-shell .gap-8 {
+            gap: 1rem !important;
+          }
+          .dashboard-shell .pt-8 {
+            padding-top: 1rem !important;
+          }
+          .dashboard-shell table {
+            font-size: 0.7rem !important;
+          }
+          .dashboard-shell th,
+          .dashboard-shell td {
+            padding: 0.4rem 0.3rem !important;
+          }
+          .dashboard-stat-card {
+            padding: 0.5rem !important;
+          }
+          .dashboard-stat-card .value {
+            font-size: 1rem !important;
+          }
+          .dashboard-shell main h2 {
+            font-size: 1rem !important;
+            margin-bottom: 0.75rem !important;
+          }
+          .dashboard-shell .p-5 {
+            padding: 0.75rem !important;
+          }
+          .dashboard-shell .mb-4 > .flex {
+            gap: 0.3rem !important;
+          }
+          .dashboard-shell .mb-4 .shrink-0 {
+            padding: 0.25rem 0.5rem !important;
+            font-size: 0.7rem !important;
+          }
+          .dashboard-shell .px-5 {
+            padding-left: 0.75rem !important;
+            padding-right: 0.75rem !important;
+          }
+          .dashboard-shell .py-4 {
+            padding-top: 0.5rem !important;
+            padding-bottom: 0.5rem !important;
+          }
+          .dashboard-shell .space-y-6 > :not([hidden]) ~ :not([hidden]) {
+            margin-top: 1rem !important;
+          }
+          .dashboard-shell .space-y-4 > :not([hidden]) ~ :not([hidden]) {
+            margin-top: 0.75rem !important;
+          }
+          .dashboard-shell .text-2xl {
+            font-size: 1.1rem !important;
+          }
+          .dashboard-shell .text-xl {
+            font-size: 1rem !important;
+          }
+          .dashboard-shell .text-sm {
+            font-size: 0.75rem !important;
+          }
+          .dashboard-shell .text-xs {
+            font-size: 0.65rem !important;
+          }
+          .dashboard-shell .gap-4 {
+            gap: 0.5rem !important;
+          }
+          .dashboard-shell .gap-6 {
+            gap: 1rem !important;
+          }
+          .dashboard-shell .my-6,
+          .dashboard-shell .mb-6 {
+            margin-bottom: 1rem !important;
+          }
+          .dashboard-shell .mt-4 {
+            margin-top: 0.5rem !important;
+          }
+        }
+      `}</style>
       {/* Header */}
       <header className="dashboard-header">
         <div className="dashboard-header-inner">
@@ -1970,7 +2070,7 @@ if (loading || signingOut) return <SuperAdminSkeleton />;
       )}
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex gap-8 pt-8 items-start">
+        <div className="flex flex-col gap-4 pt-4 lg:flex-row lg:gap-8 lg:pt-8 items-start">
           {/* Sidebar Nav */}
           <aside className="hidden w-48 shrink-0 lg:block sticky top-20 h-[calc(100vh-5rem)] overflow-y-auto">
             <nav className="space-y-1">
@@ -2002,7 +2102,7 @@ if (loading || signingOut) return <SuperAdminSkeleton />;
           </aside>
 
           {/* Mobile Nav */}
-          <div className="mb-4 flex w-full overflow-x-auto lg:hidden">
+          <div className="w-full overflow-x-auto lg:hidden">
             <div className="flex gap-2 pb-2">
               {navItems.map(({ key, label }) => (
                 <button
@@ -2016,12 +2116,12 @@ if (loading || signingOut) return <SuperAdminSkeleton />;
                 >
                   {label}
                 </button>
-          ))}
-        </div>
-      </div>
+              ))}
+            </div>
+          </div>
 
           {/* Main Content */}
-          <main className="min-w-0 flex-1 pb-8">
+          <main className="min-w-0 flex-1 pb-8 w-full">
             <h2 className="mb-6 text-xl font-semibold text-foreground">
               {sectionTitles[activeSection]}
             </h2>
