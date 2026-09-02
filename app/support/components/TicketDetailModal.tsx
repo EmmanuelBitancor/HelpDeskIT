@@ -9,7 +9,7 @@ interface TicketDetailModalProps {
   onClose: () => void;
   ticket: Ticket | null;
   staffList: SupportStaff[];
-  currentStaff: SupportStaff;
+  currentStaff: SupportStaff | null;
   draftStatus: Ticket["status"];
   draftNotes: string;
   onDraftStatusChange: (status: Ticket["status"]) => void;
@@ -150,18 +150,18 @@ export default function TicketDetailModal({
         <div className="flex items-center gap-3 border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
           <div
             className={`flex h-9 w-9 items-center justify-center rounded-full ${getAvatarColor(
-              currentStaff.name,
+              currentStaff?.name || "",
             )} text-xs font-semibold text-white`}
           >
-            {currentStaff.avatar}
+            {currentStaff?.avatar || "S"}
           </div>
           <div className="text-sm">
             <span className="font-medium text-foreground">
-              {currentStaff.name}
+              {currentStaff?.name || "Super Admin"}
             </span>
             <span className="text-zinc-500 dark:text-zinc-400">
               {" "}
-              · {currentStaff.role}
+              · {currentStaff?.role || "support"}
             </span>
           </div>
         </div>
@@ -232,7 +232,7 @@ export default function TicketDetailModal({
             <ul className="mt-2 space-y-2">
               {ticket.history.map((entry) => {
                 const author =
-                  entry.by === currentStaff.id
+                  currentStaff && entry.by === currentStaff.id
                     ? currentStaff.name
                     : staffList.find((s) => s.id === entry.by)?.name ??
                       entry.by;

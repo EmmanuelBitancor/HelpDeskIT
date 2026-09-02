@@ -15,6 +15,9 @@ import { formatDate, formatTimestamp } from "@/lib/utils";
 import { toTicket, toSystemLog, toSystemHealth } from "./helpers";
 import ProfileSettingsModal from "../settings/components/ProfileSettingsModal";
 import ChatPanel from "../chat/components/ChatPanel";
+import UserDashboard from "../dashboard/page";
+import AdminDashboard from "../admin/page";
+import SupportDashboard from "../support/page";
 import {
   Chart as ChartJS,
   ArcElement,
@@ -1323,6 +1326,9 @@ function SettingsSection({ user, onOpenProfile }: { user: { name: string; email:
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function SuperAdminDashboard() {
+  const [viewingAs, setViewingAs] = useState<"superadmin" | "admin" | "support" | "user">("superadmin");
+  const [showRoleMenu, setShowRoleMenu] = useState(false);
+  const roleMenuRef = useRef<HTMLDivElement>(null);
   const [activeSection, setActiveSection] = useState<NavSection>(() => {
     if (typeof window === "undefined") return "overview";
     const saved = localStorage.getItem("superadmin_active_section");
@@ -1456,6 +1462,16 @@ export default function SuperAdminDashboard() {
       previousFocus.focus();
     };
   }, [selectedTicket, getFocusableElements]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (roleMenuRef.current && !roleMenuRef.current.contains(e.target as Node)) {
+        setShowRoleMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     if (!user || user.role !== "superadmin") return;
@@ -1875,6 +1891,10 @@ if (loading || signingOut) return <SuperAdminSkeleton />;
             width: 100% !important;
             justify-content: flex-start !important;
             gap: 0.4rem !important;
+            flex-wrap: wrap !important;
+          }
+          .dashboard-actions .relative:first-of-type {
+            order: -1;
           }
           .dashboard-shell .h-64 {
             height: 10rem !important;
@@ -1995,6 +2015,74 @@ if (loading || signingOut) return <SuperAdminSkeleton />;
                   <span className="hidden sm:inline"> pending</span>
                 </button>
               )}
+              {/* Role Switcher */}
+              <div className="relative" ref={roleMenuRef}>
+                <button
+                  onClick={() => setShowRoleMenu(!showRoleMenu)}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    viewingAs !== "superadmin"
+                      ? "border-violet-400 bg-violet-100 text-violet-800 dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-200"
+                      : "border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-900/30 dark:text-violet-300"
+                  }`}
+                  title="Switch dashboard view"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                  </svg>
+                  <span className="hidden sm:inline">Switch View</span>
+                  <span className="sm:hidden">View</span>
+                  <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                  </svg>
+                </button>
+                {viewingAs !== "superadmin" && (
+                  <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-75" />
+                    <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-violet-500 text-[8px] font-bold text-white">
+                      !
+                    </span>
+                  </span>
+                )}
+                {showRoleMenu && (
+                  <div className="absolute right-0 top-full z-50 mt-2 w-56 rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+                    <div className="border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
+                      <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Switch Dashboard View</p>
+                    </div>
+                    <div className="py-1">
+                      {([
+                        { role: "superadmin" as const, label: "Superadmin", icon: "👑", desc: "Full system access" },
+                        { role: "admin" as const, label: "Admin", icon: "🛡️", desc: "Staff management" },
+                        { role: "support" as const, label: "Support", icon: "🎧", desc: "Ticket support" },
+                        { role: "user" as const, label: "User", icon: "👤", desc: "Client portal" },
+                      ]).map(({ role, label, icon, desc }) => (
+                        <button
+                          key={role}
+                          onClick={() => {
+                            setViewingAs(role);
+                            setShowRoleMenu(false);
+                          }}
+                          className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800 ${
+                            viewingAs === role ? "bg-violet-50 dark:bg-violet-900/20" : ""
+                          }`}
+                        >
+                          <span className="text-base">{icon}</span>
+                          <div className="flex-1">
+                            <p className={`text-sm font-medium ${viewingAs === role ? "text-violet-700 dark:text-violet-300" : "text-foreground"}`}>
+                              {label}
+                            </p>
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400">{desc}</p>
+                          </div>
+                          {viewingAs === role && (
+                            <svg className="h-4 w-4 text-violet-600 dark:text-violet-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
               <button
                 onClick={toggleTheme}
                 className="dashboard-action-button"
@@ -2121,45 +2209,74 @@ if (loading || signingOut) return <SuperAdminSkeleton />;
           </div>
 
           {/* Main Content */}
-          <main className="min-w-0 flex-1 pb-8 w-full">
-            <h2 className="mb-6 text-xl font-semibold text-foreground">
-              {sectionTitles[activeSection]}
-            </h2>
-            {activeSection === "overview" && (
-              <OverviewSection
-                health={health}
-                users={users}
-                tickets={tickets}
-                activities={activities}
-              />
-            )}
-            {activeSection === "users" && (
-              <UsersSection
-                users={users}
-                onApproveUser={handleApproveUser}
-                onToggleStatus={handleToggleStatus}
-                onEditRole={handleEditRole}
-              />
-            )}
-            {activeSection === "tickets" && (
-              <TicketsSection
-                tickets={tickets}
-                staffList={staffList}
-                onViewTicket={setSelectedTicket}
-                onReassign={assignTicket}
-              />
-            )}
-            {activeSection === "activity" && <ActivitySection activities={activities} />}
-            {activeSection === "sessions" && <SessionsSection />}
-            {activeSection === "system" && <SystemSection health={health} />}
-            {activeSection === "logs" && <LogsSection logs={logs} />}
-            {activeSection === "settings" && (
-              <SettingsSection
-                user={{ name: user.name, email: user.email }}
-                onOpenProfile={() => setIsProfileOpen(true)}
-              />
-            )}
-          </main>
+          {viewingAs === "superadmin" ? (
+            <main className="min-w-0 flex-1 pb-8 w-full">
+              <h2 className="mb-6 text-xl font-semibold text-foreground">
+                {sectionTitles[activeSection]}
+              </h2>
+              {activeSection === "overview" && (
+                <OverviewSection
+                  health={health}
+                  users={users}
+                  tickets={tickets}
+                  activities={activities}
+                />
+              )}
+              {activeSection === "users" && (
+                <UsersSection
+                  users={users}
+                  onApproveUser={handleApproveUser}
+                  onToggleStatus={handleToggleStatus}
+                  onEditRole={handleEditRole}
+                />
+              )}
+              {activeSection === "tickets" && (
+                <TicketsSection
+                  tickets={tickets}
+                  staffList={staffList}
+                  onViewTicket={setSelectedTicket}
+                  onReassign={assignTicket}
+                />
+              )}
+              {activeSection === "activity" && <ActivitySection activities={activities} />}
+              {activeSection === "sessions" && <SessionsSection />}
+              {activeSection === "system" && <SystemSection health={health} />}
+              {activeSection === "logs" && <LogsSection logs={logs} />}
+              {activeSection === "settings" && (
+                <SettingsSection
+                  user={{ name: user.name, email: user.email }}
+                  onOpenProfile={() => setIsProfileOpen(true)}
+                />
+              )}
+            </main>
+          ) : (
+            <main className="min-w-0 flex-1 pb-8 w-full">
+              {/* Role View Banner */}
+              <div className="mb-4 flex items-center justify-between rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 dark:border-violet-800 dark:bg-violet-900/20">
+                <div className="flex items-center gap-2">
+                  <svg className="h-5 w-5 text-violet-600 dark:text-violet-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span className="text-sm font-medium text-violet-700 dark:text-violet-300">
+                    Viewing as <span className="font-semibold capitalize">{viewingAs}</span>
+                  </span>
+                </div>
+                <button
+                  onClick={() => setViewingAs("superadmin")}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-700"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+                  </svg>
+                  Return to Superadmin
+                </button>
+              </div>
+              {viewingAs === "admin" && <AdminDashboard embedded />}
+              {viewingAs === "support" && <SupportDashboard embedded />}
+              {viewingAs === "user" && <UserDashboard embedded />}
+            </main>
+          )}
         </div>
       </div>
       {isProfileOpen && (

@@ -22,7 +22,7 @@ import { toAdminTicket as toTicket } from "../types/mappers";
 
 const supabase = createClient();
 
-export default function DashboardPage() {
+export default function DashboardPage({ embedded = false }: { embedded?: boolean }) {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [activeTab, setActiveTab] = useState<"active" | "past">("active");
   const [isNewTicketOpen, setIsNewTicketOpen] = useState(false);
@@ -417,7 +417,7 @@ if (ticketsError || staffError) {
 
   useEffect(() => {
     if (loading) return;
-    if (!user || user.role !== "user") {
+    if (!embedded && (!user || user.role !== "user")) {
       // Log unauthorized access attempt
       fetch("/api/unauthorized-access", {
         method: "POST",
@@ -429,10 +429,10 @@ if (ticketsError || staffError) {
         }),
       }).catch(() => {});
     }
-  }, [user, loading]);
+  }, [user, loading, embedded]);
 
   if (loading || signingOut) return <DashboardSkeleton />;
-  if (!user || user.role !== "user") {
+  if (!embedded && (!user || user.role !== "user")) {
     return (
       <>
         <DashboardSkeleton />
@@ -447,7 +447,8 @@ if (ticketsError || staffError) {
 
   return (
     <div className="dashboard-shell">
-      <header className="dashboard-header">
+      {!embedded && (
+        <header className="dashboard-header">
        <div className="dashboard-header-inner">
          <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 py-2">
            <div className="dashboard-brand">
@@ -624,7 +625,8 @@ if (ticketsError || staffError) {
                  </div>
                )}
              </div>
-              <SignOutButton />            </div>          </div>        </div>      </header>      <main className="dashboard-body">
+              <SignOutButton />            </div>          </div>        </div>      </header>      )}
+      <main className="dashboard-body">
         {error && (
           <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400">
             {error}
