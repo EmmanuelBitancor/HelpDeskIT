@@ -1,7 +1,49 @@
 # HelpDeskIT
 
+A comprehensive IT help desk ticketing system built with Next.js and Supabase. HelpDeskIT streamlines support operations by providing a centralized platform for managing tickets, coordinating support teams, and tracking service health across multiple user roles.
 
-IT help desk application built with Next.js and Supabase.
+## Features
+
+### Multi-Role Dashboard System
+- **User Portal** - Submit and track support tickets, access knowledge base, and chat with support staff
+- **Support Dashboard** - View assigned tickets, update ticket status, and communicate with users
+- **Admin Console** - Manage support staff, reassign tickets, and monitor team performance
+- **Superadmin Panel** - Full system oversight with user management, system health monitoring, activity logs, and the ability to switch between role views for testing and troubleshooting
+
+### Ticket Management
+- Create, assign, and track support tickets with priority levels (low, medium, high, critical)
+- Categorize tickets and monitor status (open, in progress, resolved, closed)
+- Reassign tickets between support staff
+- Real-time ticket updates via Supabase subscriptions
+
+### User Management
+- Role-based access control (user, support, admin, superadmin)
+- User approval workflow for new registrations
+- Account suspension and reinstatement capabilities
+- Role assignment and editing
+
+### Communication
+- Built-in chat system between users and support staff
+- Real-time notifications for unread messages
+- Email notifications for ticket events (OTP, password reset, welcome emails)
+
+### System Monitoring
+- Infrastructure health dashboard (CPU, memory, database latency, API response time)
+- System logs with level filtering (info, warn, error, debug)
+- Activity feed tracking all user actions
+- Session management with revoke capabilities
+
+### Security
+- Row Level Security (RLS) policies on all tables
+- Rate limiting on API routes (Upstash Redis or in-memory fallback)
+- OTP verification for new account sign-ups
+- Secure password reset flow
+- Activity logging for audit trails
+
+### Responsive Design
+- Mobile-first responsive layouts for all dashboards
+- Dark mode support with system preference detection
+- Touch-friendly navigation and controls
 
 ## Prerequisites
 

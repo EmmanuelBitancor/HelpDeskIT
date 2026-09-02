@@ -21,7 +21,7 @@ import ChatPanel from "../chat/components/ChatPanel";
 
 const supabase = createClient();
 
-export default function SupportDashboard() {
+export default function SupportDashboard({ embedded = false }: { embedded?: boolean }) {
   const { user, loading, signingOut } = useAuth();
   const { unreadMessages } = useNotifications();
 
@@ -238,7 +238,7 @@ useEffect(() => {
       ticket_id: ticketId,
       status,
       note: resolutionNotes,
-      by: currentStaff!.id,
+      by: currentStaff?.id || user?.id || "",
       at: now,
     });
     if (historyError) console.error("Failed to record history", historyError);
@@ -257,7 +257,7 @@ useEffect(() => {
                   ticketId,
                   status,
                   note: resolutionNotes,
-                  by: currentStaff!.id,
+                  by: currentStaff?.id || user?.id || "",
                   at: now,
                 },
               ],
@@ -313,7 +313,7 @@ useEffect(() => {
 
   useEffect(() => {
     if (loading) return;
-    if (!user) {
+    if (!embedded && !user) {
       // Log unauthorized access attempt
       fetch("/api/unauthorized-access", {
         method: "POST",
@@ -325,10 +325,10 @@ useEffect(() => {
         }),
       }).catch(() => {});
     }
-  }, [user, loading]);
+  }, [user, loading, embedded]);
 
   if (loading || signingOut) return <SupportSkeleton />;
-  if (!user || user.role !== "support") {
+  if (!embedded && (!user || user.role !== "support")) {
     return (
       <>
         <SupportSkeleton />
@@ -341,12 +341,13 @@ useEffect(() => {
     );
   }
 
-  if (isLoadingStaff || !currentStaff) return <SupportSkeleton />;
+  if (!embedded && (isLoadingStaff || !currentStaff)) return <SupportSkeleton />;
 
   return (
     <div className="dashboard-shell">
-      <header className="dashboard-header">
-        <div className="dashboard-header-inner">
+      {!embedded && (
+        <header className="dashboard-header">
+          <div className="dashboard-header-inner">
           <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 py-2">
             <div className="dashboard-brand">
               <div className="dashboard-brand-mark bg-red-600">
@@ -373,17 +374,17 @@ useEffect(() => {
               <div className="hidden items-center gap-2 sm:flex">
                 <div
                   className={`flex h-7 w-7 items-center justify-center rounded-full ${getAvatarColor(
-                    currentStaff.name,
+                    currentStaff?.name || user?.name || "",
                   )} text-xs font-semibold text-white`}
                 >
-                  {currentStaff.avatar}
+                  {currentStaff?.avatar || (user?.name || "S").charAt(0)}
                 </div>
                 <div className="flex flex-col leading-tight text-left">
                   <span className="text-sm font-medium text-slate-600 dark:text-slate-200">
-                    {currentStaff.name}
+                    {currentStaff?.name || user?.name || "Super Admin"}
                   </span>
                   <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                    {currentStaff.email}
+                    {currentStaff?.email || user?.email || ""}
                   </span>
                 </div>
               </div>
@@ -500,24 +501,25 @@ useEffect(() => {
           </div>
         </div>
       </header>
+      )}
  
       <main className="dashboard-body">
         <div className="mb-8 flex flex-col gap-2">
           <h2 className="text-2xl font-semibold text-foreground">
-            {`${currentStaff.name}'s Support Dashboard`}
+            {`${currentStaff?.name || user?.name || "Super Admin"}'s Support Dashboard`}
           </h2>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            {currentStaff.role} &middot; {currentStaff.email}
+            {currentStaff?.role || "support"} &middot; {currentStaff?.email || user?.email || ""}
           </p>
         </div>
 
         <div className="mb-8 flex items-center gap-4">
           <div
             className={`flex h-12 w-12 items-center justify-center rounded-full ${getAvatarColor(
-              currentStaff.name,
+              currentStaff?.name || user?.name || "",
             )} text-sm font-semibold text-white`}
           >
-            {currentStaff.avatar}
+            {currentStaff?.avatar || (user?.name || "S").charAt(0)}
           </div>
           <div>
             <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
@@ -743,16 +745,16 @@ useEffect(() => {
         <ProfileSettingsModal
           isOpen={isProfileOpen}
           onClose={() => setIsProfileOpen(false)}
-          initialName={currentStaff.name}
-          initialEmail={currentStaff.email}
+          initialName={currentStaff?.name || user?.name || ""}
+          initialEmail={currentStaff?.email || user?.email || ""}
         />
       )}
       {isChatOpen && user?.id && (
         <ChatPanel
           currentUser={{
             id: user.id,
-            name: currentStaff.name,
-            email: currentStaff.email,
+            name: currentStaff?.name || user?.name || "",
+            email: currentStaff?.email || user?.email || "",
             role: "support",
           }}
           getRecipients={async () => {
@@ -785,7 +787,7 @@ useEffect(() => {
             const unique = combined.filter(
               (u, i, arr) => i === arr.findIndex((x) => x.id === u.id)
             );
-            return unique.filter((u) => u.id !== (user?.id || currentStaff.id));
+            return unique.filter((u) => u.id !== (user?.id || currentStaff?.id));
           }}
           title="Messages"
           onClose={() => setIsChatOpen(false)}

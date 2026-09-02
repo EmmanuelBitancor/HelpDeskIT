@@ -19,7 +19,7 @@ import { toAdminTicket, toStaff } from "../types/mappers";
 
 const supabase = createClient();
 
-export default function AdminDashboard() {
+export default function AdminDashboard({ embedded = false }: { embedded?: boolean }) {
   const VALID_STAFF_ROLES = [
     "IT Support Specialist",
     "Senior IT Support",
@@ -511,7 +511,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (loading) return;
-    if (!user || user.role !== "admin") {
+    if (!embedded && (!user || user.role !== "admin")) {
       fetch("/api/unauthorized-access", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -522,10 +522,10 @@ export default function AdminDashboard() {
         }),
       }).catch(() => {});
     }
-  }, [user, loading]);
+  }, [user, loading, embedded]);
 
   if (loading || signingOut) return <AdminSkeleton />;
-  if (!user || user.role !== "admin") {
+  if (!embedded && (!user || user.role !== "admin")) {
     return (
       <>
         <AdminSkeleton />
@@ -542,8 +542,9 @@ export default function AdminDashboard() {
 
   return (
     <div className="dashboard-shell">
-      <header className="dashboard-header">
-        <div className="dashboard-header-inner">
+      {!embedded && (
+        <header className="dashboard-header">
+          <div className="dashboard-header-inner">
           <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 py-2">
             <div className="dashboard-brand">
               <div className="dashboard-brand-mark bg-red-600">
@@ -672,6 +673,7 @@ export default function AdminDashboard() {
           </div>
         </div>
       </header>
+      )}
  
       <main className="dashboard-body">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
