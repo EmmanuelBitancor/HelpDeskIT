@@ -306,7 +306,7 @@ function OverviewSection({
 
       {/* Export */}
       <div className="flex justify-end">
-        <WeeklyReportButton tickets={tickets} activities={activities} users={users} health={health} captureCharts={captureCharts} />
+        <WeeklyReportButton tickets={tickets} activities={activities} users={users} health={health} captureCharts={captureCharts} userRole="superadmin" />
       </div>
 
       {/* Charts */}
@@ -616,7 +616,7 @@ function TicketsSection({ tickets, staffList, onViewTicket, onReassign }: {
             ),
           )}
         </div>
-        <WeeklyReportButton tickets={tickets} />
+        <WeeklyReportButton tickets={tickets} userRole="superadmin" />
       </div>
 
       <div className="space-y-3">
@@ -807,7 +807,7 @@ function ActivitySection({ activities }: { activities: ActivityLog[] }) {
             </button>
           ))}
         </div>
-        <WeeklyReportButton activities={activities} />
+        <WeeklyReportButton activities={activities} userRole="superadmin" />
       </div>
 
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -944,7 +944,7 @@ function SessionsSection() {
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <WeeklyReportButton sessions={sessions} />
+        <WeeklyReportButton sessions={sessions} userRole="superadmin" />
       </div>
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">

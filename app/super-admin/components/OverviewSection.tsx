@@ -151,7 +151,7 @@ export default function OverviewSection({ health, users, tickets, activities }: 
 
       {/* Export */}
       <div className="flex justify-end">
-        <WeeklyReportButton tickets={tickets} activities={activities} users={users} health={health} captureCharts={captureCharts} />
+        <WeeklyReportButton tickets={tickets} activities={activities} users={users} health={health} captureCharts={captureCharts} userRole="superadmin" />
       </div>
 
       {/* Charts */}
