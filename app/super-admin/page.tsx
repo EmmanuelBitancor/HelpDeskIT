@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import SignOutButton from "@/components/SignOutButton";
+import AccountSwitcher from "@/components/AccountSwitcher";
 import { SuperAdminSkeleton, Skeleton } from "@/components/skeleton";
 import ForbiddenAccessModal from "@/components/ForbiddenAccessModal";
 import { createClient } from "@/lib/supabase/client";
@@ -2135,6 +2136,7 @@ if (loading || signingOut) return <SuperAdminSkeleton />;
                   </span>
                 </div>
               </div>
+              <AccountSwitcher />
               <SignOutButton />
             </div>
           </div>

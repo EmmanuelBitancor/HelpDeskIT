@@ -3,6 +3,7 @@ import { randomInt } from "crypto";
 import { checkRateLimit, getClientIdentifier } from "@/app/api/_lib/ratelimit";
 import { sendEmail } from "@/lib/email";
 import { otpEmail } from "@/lib/email-templates";
+import { isStrongPassword } from "@/lib/password-validation";
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,9 +39,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid email address" }, { status: 400 });
     }
 
-    if (password.length < 8) {
+    if (!isStrongPassword(password)) {
       return NextResponse.json(
-        { error: "Password must be at least 8 characters" },
+        {
+          error:
+            "Password must be at least 6 characters and include an uppercase letter, a number, and a symbol",
+        },
         { status: 400 }
       );
     }

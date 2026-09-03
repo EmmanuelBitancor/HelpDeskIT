@@ -5,6 +5,7 @@ import StaffModal from "./components/StaffModal";
 import { useNotifications } from "@/app/hooks/useNotifications";
 import { useAuth } from "@/context/AuthContext";
 import SignOutButton from "@/components/SignOutButton";
+import AccountSwitcher from "@/components/AccountSwitcher";
 import { AdminSkeleton } from "@/components/skeleton";
 import ForbiddenAccessModal from "@/components/ForbiddenAccessModal";
 import { createClient } from "@/lib/supabase/client";
@@ -668,6 +669,7 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
                 )}
                 <span className="hidden sm:inline">Theme</span>
               </button>
+              <AccountSwitcher />
               <SignOutButton />
             </div>
           </div>
