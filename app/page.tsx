@@ -7,6 +7,10 @@ import { roleRoutes } from "@/context/authTypes";
 import ForgotPasswordModal from "./settings/components/ForgotPasswordModal";
 import OtpModal from "./components/OtpModal";
 import Loading from "@/components/Loading";
+import {
+  getPasswordRequirementStatus,
+  isStrongPassword,
+} from "@/lib/password-validation";
 
 export default function Home() {
   const router = useRouter();
@@ -27,6 +31,14 @@ export default function Home() {
   const [signupPassword, setSignupPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(savedRememberMe);
   const [mobileView, setMobileView] = useState<"panel" | "form">("form");
+  const passwordRequirements = getPasswordRequirementStatus(password);
+  const passwordRequirementCount = Object.values(passwordRequirements).filter(Boolean).length;
+  const passwordRequirementColor = (met: boolean) =>
+    met
+      ? "text-green-600 dark:text-green-400"
+      : passwordRequirementCount > 0
+        ? "text-yellow-600 dark:text-yellow-400"
+        : "text-red-600 dark:text-red-400";
   const trustHighlights = [
     "Smart ticket triage",
     "Faster response times",
@@ -81,6 +93,14 @@ export default function Home() {
 
     if (password !== confirmPassword) {
       setError("The passwords you entered do not match. Please try again.");
+      setIsLoading(false);
+      return;
+    }
+
+    if (!isStrongPassword(password)) {
+      setError(
+        "Password must be at least 6 characters and include an uppercase letter, a number, and a symbol."
+      );
       setIsLoading(false);
       return;
     }
@@ -599,6 +619,26 @@ export default function Home() {
                 </button>
               </div>
             </div>
+
+            {isSignUp && password && (
+              <ul
+                aria-label="Password requirements"
+                className="mt-2 space-y-1 text-xs"
+              >
+                <li className={passwordRequirementColor(passwordRequirements.minLength)}>
+                  ● At least 6 characters
+                </li>
+                <li className={passwordRequirementColor(passwordRequirements.uppercase)}>
+                  ● One capital letter
+                </li>
+                <li className={passwordRequirementColor(passwordRequirements.number)}>
+                  ● One number
+                </li>
+                <li className={passwordRequirementColor(passwordRequirements.symbol)}>
+                  ● One symbol
+                </li>
+              </ul>
+            )}
 
             {isSignUp && (
               <div>
