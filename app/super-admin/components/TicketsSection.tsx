@@ -6,6 +6,7 @@ import { ticketStatusStyles, priorityStyles } from "@/lib/styles";
 import { formatDate } from "@/lib/utils";
 import type { Ticket } from "../../types/ticket";
 import ReassignButton from "./ReassignButton";
+import WeeklyReportButton from "@/components/WeeklyReportButton";
 
 interface TicketsSectionProps {
   tickets: Ticket[];
@@ -26,23 +27,25 @@ export default function TicketsSection({ tickets, staffList, onViewTicket, onRea
 
   return (
     <div className="space-y-4">
-      {/* Filter Bar */}
-      <div className="flex flex-wrap gap-2">
-        {(["all", "open", "in_progress", "resolved", "closed"] as const).map(
-          (s) => (
-            <button
-              key={s}
-              onClick={() => setFilter(s)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
-                filter === s
-                  ? "bg-foreground text-background"
-                  : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-              }`}
-            >
-              {s.replace("_", " ")}
-            </button>
-          )
-        )}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          {(["all", "open", "in_progress", "resolved", "closed"] as const).map(
+            (s) => (
+              <button
+                key={s}
+                onClick={() => setFilter(s)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+                  filter === s
+                    ? "bg-foreground text-background"
+                    : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                }`}
+              >
+                {s.replace("_", " ")}
+              </button>
+            ),
+          )}
+        </div>
+        <WeeklyReportButton tickets={tickets} />
       </div>
 
       <div className="space-y-3">

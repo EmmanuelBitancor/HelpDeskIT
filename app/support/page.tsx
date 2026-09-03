@@ -7,6 +7,7 @@ import { Ticket, SupportStaff, TicketStatus, TicketHistoryEntry } from "./types"
 import { toStaff, toHistoryEntry, toSupportTicket } from "../types/mappers";
 import { useAuth } from "@/context/AuthContext";
 import SignOutButton from "@/components/SignOutButton";
+import AccountSwitcher from "@/components/AccountSwitcher";
 import { SupportSkeleton } from "@/components/skeleton";
 import ForbiddenAccessModal from "@/components/ForbiddenAccessModal";
 import { createClient } from "@/lib/supabase/client";
@@ -18,6 +19,7 @@ import { ticketStatusStyles, priorityStyles } from "@/lib/styles";
 import { formatDate, getAvatarColor, priorityLabels } from "@/lib/utils";
 import ProfileSettingsModal from "../settings/components/ProfileSettingsModal";
 import ChatPanel from "../chat/components/ChatPanel";
+import WeeklyReportButton from "@/components/WeeklyReportButton";
 
 const supabase = createClient();
 
@@ -496,6 +498,7 @@ useEffect(() => {
                 )}
                 Theme
               </button>
+              <AccountSwitcher />
               <SignOutButton />
             </div>
           </div>
@@ -505,12 +508,17 @@ useEffect(() => {
  
       <main className="dashboard-body">
         <div className="mb-8 flex flex-col gap-2">
-          <h2 className="text-2xl font-semibold text-foreground">
-            {`${currentStaff?.name || user?.name || "Super Admin"}'s Support Dashboard`}
-          </h2>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            {currentStaff?.role || "support"} &middot; {currentStaff?.email || user?.email || ""}
-          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-2xl font-semibold text-foreground">
+                {`${currentStaff?.name || user?.name || "Super Admin"}'s Support Dashboard`}
+              </h2>
+              <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                {currentStaff?.role || "support"} &middot; {currentStaff?.email || user?.email || ""}
+              </p>
+            </div>
+            <WeeklyReportButton tickets={tickets} />
+          </div>
         </div>
 
         <div className="mb-8 flex items-center gap-4">

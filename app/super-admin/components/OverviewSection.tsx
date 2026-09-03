@@ -8,8 +8,10 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
+import { useMemo, useRef, useCallback } from "react";
 import StatCard from "./StatCard";
 import type { SystemHealth, SystemUser, Ticket, ActivityLog } from "../types";
+import WeeklyReportButton from "@/components/WeeklyReportButton";
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 
@@ -21,6 +23,28 @@ interface OverviewSectionProps {
 }
 
 export default function OverviewSection({ health, users, tickets, activities }: OverviewSectionProps) {
+  const pieRef = useRef<HTMLDivElement | null>(null);
+  const barRef = useRef<HTMLDivElement | null>(null);
+
+  const captureCharts = useCallback(() => {
+    const images: { title: string; dataUrl: string }[] = [];
+
+    if (pieRef.current) {
+      const canvas = pieRef.current.querySelector("canvas");
+      if (canvas) {
+        images.push({ title: "Ticket Status Distribution", dataUrl: canvas.toDataURL("image/png") });
+      }
+    }
+
+    if (barRef.current) {
+      const canvas = barRef.current.querySelector("canvas");
+      if (canvas) {
+        images.push({ title: "Users by Role", dataUrl: canvas.toDataURL("image/png") });
+      }
+    }
+
+    return images;
+  }, []);
   const ticketsByStatus = {
     open: tickets.filter((t) => t.status === "open").length,
     in_progress: tickets.filter((t) => t.status === "in_progress").length,
@@ -125,15 +149,20 @@ export default function OverviewSection({ health, users, tickets, activities }: 
         />
       </div>
 
+      {/* Export */}
+      <div className="flex justify-end">
+        <WeeklyReportButton tickets={tickets} activities={activities} users={users} health={health} captureCharts={captureCharts} />
+      </div>
+
       {/* Charts */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+        <div ref={pieRef} className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
           <h3 className="mb-4 text-sm font-semibold text-foreground">Ticket Status Distribution</h3>
           <div className="h-64">
             <Pie data={pieData} options={chartOptions} />
           </div>
         </div>
-        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+        <div ref={barRef} className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
           <h3 className="mb-4 text-sm font-semibold text-foreground">Users by Role</h3>
           <div className="h-64">
             <Bar data={barData} options={chartOptions} />
