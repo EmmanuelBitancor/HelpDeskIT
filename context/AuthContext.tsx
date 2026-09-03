@@ -27,6 +27,8 @@ interface AuthContextValue {
   loading: boolean;
   signingOut: boolean;
   setSigningOut: (value: boolean) => void;
+  switchingAccount: boolean;
+  setSwitchingAccount: (value: boolean) => void;
   signIn: (
     email: string,
     password: string,
@@ -43,6 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
   const [signingOut, setSigningOut] = useState(false);
+  const [switchingAccount, setSwitchingAccount] = useState(false);
   const [rememberMe, setRememberMe] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -268,7 +271,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signingOut, setSigningOut, signIn, signOut, refreshProfile, rememberMe }}>
+    <AuthContext.Provider value={{ user, loading, signingOut, setSigningOut, switchingAccount, setSwitchingAccount, signIn, signOut, refreshProfile, rememberMe }}>
       {children}
     </AuthContext.Provider>
   );
