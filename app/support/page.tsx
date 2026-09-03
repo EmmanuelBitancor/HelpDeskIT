@@ -341,7 +341,7 @@ useEffect(() => {
     );
   }
 
-  if (!embedded && (isLoadingStaff || !currentStaff)) return <SupportSkeleton />;
+  if (!embedded && isLoadingStaff) return <SupportSkeleton />;
 
   return (
     <div className="dashboard-shell">

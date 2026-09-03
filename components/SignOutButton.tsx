@@ -20,8 +20,11 @@ export default function SignOutButton() {
     setError(null);
 
     try {
-      await signOut();
+      // Leave the protected dashboard before auth state clears, otherwise its
+      // role guard can briefly render the forbidden modal.
+      setConfirmOpen(false);
       router.replace("/");
+      await signOut();
     } catch {
       setError("We couldn't sign you out. Please try again.");
     }
