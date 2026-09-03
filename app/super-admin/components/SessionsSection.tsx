@@ -95,7 +95,7 @@ export default function SessionsSection() {
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <WeeklyReportButton sessions={sessions} />
+        <WeeklyReportButton sessions={sessions} userRole="superadmin" />
       </div>
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">

@@ -517,7 +517,7 @@ useEffect(() => {
                 {currentStaff?.role || "support"} &middot; {currentStaff?.email || user?.email || ""}
               </p>
             </div>
-            <WeeklyReportButton tickets={tickets} />
+            <WeeklyReportButton tickets={tickets} userRole="support" />
           </div>
         </div>
 

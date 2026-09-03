@@ -768,7 +768,7 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
             </p>
           </div>
           <div className="flex gap-3">
-            <WeeklyReportButton tickets={tickets} />
+            <WeeklyReportButton tickets={tickets} userRole="admin" />
             {selectedStaff && (
               <button
                 onClick={() => setSelectedStaff(null)}

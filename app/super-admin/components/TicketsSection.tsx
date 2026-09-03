@@ -45,7 +45,7 @@ export default function TicketsSection({ tickets, staffList, onViewTicket, onRea
             ),
           )}
         </div>
-        <WeeklyReportButton tickets={tickets} />
+        <WeeklyReportButton tickets={tickets} userRole="superadmin" />
       </div>
 
       <div className="space-y-3">
