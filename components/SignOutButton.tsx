@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 
 export default function SignOutButton() {
   const router = useRouter();
-  const { user, signOut, signingOut } = useAuth();
+  const { user, signOut, signingOut, setSigningOut } = useAuth();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,12 +20,14 @@ export default function SignOutButton() {
     setError(null);
 
     try {
-      // Leave the protected dashboard before auth state clears, otherwise its
-      // role guard can briefly render the forbidden modal.
       setConfirmOpen(false);
-      router.replace("/");
+      // Set signingOut=true BEFORE navigating so dashboard shows skeleton
+      // instead of checking roles (which would show forbidden modal briefly).
+      setSigningOut(true);
+      await router.replace("/");
       await signOut();
     } catch {
+      setSigningOut(false);
       setError("We couldn't sign you out. Please try again.");
     }
   };
