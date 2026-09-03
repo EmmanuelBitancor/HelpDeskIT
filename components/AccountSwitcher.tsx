@@ -6,7 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { roleRoutes } from "@/context/authTypes";
 
 export default function AccountSwitcher() {
-  const { user, signIn } = useAuth();
+  const { user, signIn, setSwitchingAccount } = useAuth();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -25,15 +25,17 @@ export default function AccountSwitcher() {
     setSwitching(true);
     setError(null);
     try {
+      // Set switchingAccount=true before signIn to prevent dashboard role guard
+      // from briefly showing forbidden modal during the transition.
+      setSwitchingAccount(true);
       const result = await signIn(email.trim(), password);
       if (!result.ok || !result.role) {
         throw new Error(result.error || "Unable to switch account.");
       }
       setOpen(false);
-      // Reload the destination so the current dashboard guard cannot briefly
-      // evaluate the newly signed-in role against the old dashboard route.
       window.location.replace(roleRoutes[result.role]);
     } catch (switchError) {
+      setSwitchingAccount(false);
       setError(
         switchError instanceof Error
           ? switchError.message

@@ -1420,7 +1420,7 @@ export default function SuperAdminDashboard() {
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const { unreadMessages } = useNotifications();
 
-  const { user, loading, signingOut } = useAuth();
+  const { user, loading, signingOut, switchingAccount } = useAuth();
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -1892,7 +1892,7 @@ export default function SuperAdminDashboard() {
     settings: "System Settings",
   };
 
-if (loading || signingOut) return <SuperAdminSkeleton />;
+  if (loading || signingOut || switchingAccount) return <SuperAdminSkeleton />;
   if (!user || user.role !== "superadmin") {
     return (
       <>

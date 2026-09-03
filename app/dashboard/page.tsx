@@ -45,7 +45,7 @@ export default function DashboardPage({ embedded = false }: { embedded?: boolean
       : "light";
   });
 
-  const { user, loading, signingOut, refreshProfile } = useAuth();
+  const { user, loading, signingOut, switchingAccount, refreshProfile } = useAuth();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const { ticketMessages } = useTicketMessages(user?.id);
 
@@ -431,7 +431,7 @@ if (ticketsError || staffError) {
     }
   }, [user, loading, embedded]);
 
-  if (loading || signingOut) return <DashboardSkeleton />;
+  if (loading || signingOut || switchingAccount) return <DashboardSkeleton />;
   if (!embedded && (!user || user.role !== "user")) {
     return (
       <>

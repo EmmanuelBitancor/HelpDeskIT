@@ -164,7 +164,7 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
     };
   }, [isStaffFormOpen, getFocusableElements]);
 
-  const { user, loading, signingOut } = useAuth();
+  const { user, loading, signingOut, switchingAccount } = useAuth();
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -601,7 +601,7 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
     }
   }, [user, loading, embedded]);
 
-  if (loading || signingOut) return <AdminSkeleton />;
+  if (loading || signingOut || switchingAccount) return <AdminSkeleton />;
   if (!embedded && (!user || user.role !== "admin")) {
     return (
       <>

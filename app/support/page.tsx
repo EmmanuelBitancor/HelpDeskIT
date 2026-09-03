@@ -24,7 +24,7 @@ import WeeklyReportButton from "@/components/WeeklyReportButton";
 const supabase = createClient();
 
 export default function SupportDashboard({ embedded = false }: { embedded?: boolean }) {
-  const { user, loading, signingOut } = useAuth();
+  const { user, loading, signingOut, switchingAccount } = useAuth();
   const { unreadMessages } = useNotifications();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -329,7 +329,7 @@ useEffect(() => {
     }
   }, [user, loading, embedded]);
 
-  if (loading || signingOut) return <SupportSkeleton />;
+  if (loading || signingOut || switchingAccount) return <SupportSkeleton />;
   if (!embedded && (!user || user.role !== "support")) {
     return (
       <>
