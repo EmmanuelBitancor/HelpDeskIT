@@ -12,7 +12,7 @@ interface StaffModalProps {
   onAddStaff: () => void;
   onEditStaff: (staff: SupportStaff) => void;
   onToggleStaffStatus: (staffId: string) => void;
-  onDeleteStaff: (staffId: string) => void;
+  onRequestDeleteStaff: (staff: SupportStaff) => void;
   getStaffWorkload: (staffId: string) => {
     total: number;
     open: number;
@@ -31,21 +31,44 @@ export default function StaffModal({
   onAddStaff,
   onEditStaff,
   onToggleStaffStatus,
-  onDeleteStaff,
+  onRequestDeleteStaff,
   getStaffWorkload,
   getAvatarColor,
 }: StaffModalProps) {
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
+
+  // Get unique roles from staff list
+  const uniqueRoles = Array.from(
+    new Set(staffList.map((staff) => staff.role).filter(Boolean))
+  ).sort();
 
   const filtered = staffList.filter((staff) => {
     const query = search.toLowerCase().trim();
-    if (!query) return true;
-    return (
+    const matchesSearch =
+      !query ||
       staff.name.toLowerCase().includes(query) ||
-      staff.role.toLowerCase().includes(query) ||
-      staff.email.toLowerCase().includes(query)
-    );
+      staff.email.toLowerCase().includes(query) ||
+      (staff.role?.toLowerCase().includes(query) ?? false) ||
+      (["no role", "unassigned", "none"].includes(query) && !staff.role);
+
+    const matchesRole = !roleFilter || staff.role === roleFilter;
+
+    return matchesSearch && matchesRole;
   });
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, roleFilter]);
+
+  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
+  const paginatedStaff = filtered.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
 
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -135,28 +158,75 @@ export default function StaffModal({
         </div>
 
         <div className="border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
-          <div className="relative">
-            <svg
-              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 0010.5 18.75a7.5 7.5 0 00-7.5-7.5A7.5 7.5 0 003.75 10.5m0 0L21 21z"
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
+            <div className="relative flex-1">
+              <svg
+                className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 0010.5 18.75a7.5 7.5 0 00-7.5-7.5A7.5 7.5 0 003.75 10.5m0 0L21 21z"
+                />
+              </svg>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search staff by name, role, or email address..."
+                className="w-full rounded-lg border border-zinc-300 py-2.5 pl-9 pr-4 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
               />
-            </svg>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search staff by name, role, or email address..."
-              className="w-full rounded-lg border border-zinc-300 py-2.5 pl-9 pr-4 text-sm text-foreground placeholder-zinc-400 outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-            />
+            </div>
+            <div className="relative sm:w-48">
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                className="w-full appearance-none rounded-lg border border-zinc-300 bg-white py-2.5 pl-3 pr-8 text-sm text-foreground outline-none transition-colors focus:border-foreground focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                <option value="">All Roles</option>
+                {uniqueRoles.map((role) => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
+              <svg
+                className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M19 9l-7 7-7-7"
+                />
+              </svg>
+            </div>
           </div>
+          {(search || roleFilter) && (
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                Showing {filtered.length} of {staffList.length} staff
+              </span>
+              {(search || roleFilter) && (
+                <button
+                  onClick={() => {
+                    setSearch("");
+                    setRoleFilter("");
+                  }}
+                  className="text-xs text-foreground underline hover:no-underline"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4">
@@ -183,8 +253,9 @@ export default function StaffModal({
               </p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {filtered.map((staff) => {
+            <>
+              <div className="space-y-2">
+                {paginatedStaff.map((staff) => {
                 const workload = getStaffWorkload(staff.id);
                 const isSelected = selectedStaff?.id === staff.id;
                 return (
@@ -230,7 +301,7 @@ export default function StaffModal({
                           {staff.email}
                         </p>
                         <p className="text-xs text-zinc-600 dark:text-zinc-300">
-                          {staff.role}
+                          {staff.role || "No role assigned"}
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-3 sm:justify-start sm:gap-4">
@@ -281,15 +352,7 @@ export default function StaffModal({
                             {staff.active ? "Deactivate" : "Activate"}
                           </button>
                           <button
-                            onClick={() => {
-                              if (
-                                confirm(
-                                  `Are you sure you want to remove ${staff.name}? This will unassign them from all tickets.`
-                                )
-                              ) {
-                                onDeleteStaff(staff.id);
-                              }
-                            }}
+                            onClick={() => onRequestDeleteStaff(staff)}
                             className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-50 dark:border-red-900/50 dark:text-red-300 dark:hover:bg-red-950/30"
                           >
                             Remove
@@ -300,7 +363,33 @@ export default function StaffModal({
                   </div>
                 );
               })}
-            </div>
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between border-t border-zinc-200 pt-4 mt-4 dark:border-zinc-800">
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -329,5 +418,3 @@ export default function StaffModal({
     </div>
   );
 }
-
-

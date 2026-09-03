@@ -15,8 +15,11 @@ import { usePagination, Pagination } from "@/components/Pagination";
 import { ticketStatusStyles, priorityStyles } from "@/lib/styles";
 import { formatDate, getAvatarColor, priorityLabels } from "@/lib/utils";
 import ChatPanel from "../chat/components/ChatPanel";
+import WeeklyReportButton from "@/components/WeeklyReportButton";
 import type { Ticket, SupportStaff, TicketStatus } from "../types/ticket";
 import { toAdminTicket, toStaff } from "../types/mappers";
+import DeleteStaffConfirmModal from "@/components/DeleteStaffConfirmModal";
+import StaffSaveFeedbackModal from "@/components/StaffSaveFeedbackModal";
 
 const supabase = createClient();
 
@@ -51,6 +54,7 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
     password: "",
   });
   const [staffFormError, setStaffFormError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const { unreadMessages } = useNotifications();
   const [theme, setTheme] = useState<"light" | "dark">(() => {
@@ -61,6 +65,10 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
       ? "dark"
       : "light";
   });
+  const [deleteStaffModalOpen, setDeleteStaffModalOpen] = useState(false);
+  const [staffToDelete, setStaffToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [isSavingStaff, setIsSavingStaff] = useState(false);
+  const [staffSaveResult, setStaffSaveResult] = useState<{ success: boolean; message: string; staffName?: string } | null>(null);
   const ticketDialogRef = useRef<HTMLDivElement>(null);
   const staffDialogRef = useRef<HTMLDivElement>(null);
 
@@ -123,6 +131,7 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
         setIsStaffFormOpen(false);
         setEditingStaff(null);
         setStaffForm({ name: "", email: "", role: "", customRole: "", password: "" });
+        setShowPassword(false);
         return;
       }
       if (e.key !== "Tab") return;
@@ -169,48 +178,95 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
 
     const refresh = async () => {
       try {
-        const [ticketsRes, staffRes] = await Promise.all([
+        const [ticketsRes, staffRes, accountsRes] = await Promise.all([
           supabase.from("tickets").select("*").order("created_at", { ascending: false }),
           supabase.from("support_staff").select("*").order("name"),
+          supabase
+            .from("accounts")
+            .select("id, name, email, role, avatar, status")
+            .eq("role", "support"),
         ]);
 
         if (!mounted) return;
 
-        if (ticketsRes.error || staffRes.error) {
-          const message = ticketsRes.error?.message || staffRes.error?.message || "Unable to load dashboard data. Please check your connection and try again.";
-          console.error("Admin data load error:", ticketsRes.error || staffRes.error);
+        // Handle errors for each request individually
+        const ticketError = ticketsRes.error;
+        const staffError = staffRes.error;
+        const accountError = accountsRes.error;
+
+        // Set page error if either request failed
+        if (ticketError || staffError || accountError) {
+          const message = ticketError?.message || staffError?.message || accountError?.message || "Unable to load dashboard data. Please check your connection and try again.";
+          console.error("Admin data load error:", ticketError || staffError || accountError);
           setPageError(message);
-          setIsLoading(false);
-          return;
+          // Don't return early - still try to process successful data
+        } else {
+          setPageError(null);
         }
 
-        setPageError(null);
-        const tickets = ticketsRes.data?.map((r) => toAdminTicket(r)) ?? [];
-        const staff = staffRes.data?.map((r) => toStaff(r)) ?? [];
-        setTickets(tickets);
-        setStaffList(staff);
-        setCachedData("admin_tickets", tickets, 30_000);
-        setCachedData("admin_staff", staff, 60_000);
+        // Process tickets data if available
+        if (ticketsRes.data) {
+          const tickets = ticketsRes.data.map((r) => toAdminTicket(r));
+          setTickets(tickets);
+          setCachedData("admin_tickets", tickets, 30_000);
+        }
+
+        // Process staff data if available
+        if (staffRes.data) {
+          const staff = staffRes.data.map((r) => toStaff(r));
+          const staffEmails = new Set(staff.map((member) => member.email.toLowerCase()));
+          const missingSupportStaff = (accountsRes.data ?? [])
+            .filter(
+              (account) =>
+                account.status !== "suspended" &&
+                !staffEmails.has(String(account.email).toLowerCase()),
+            )
+            .map((account) => ({
+              id: `staff-${account.id}`,
+              name: String(account.name ?? ""),
+              email: String(account.email ?? ""),
+              role: "Support",
+              avatar: String(account.avatar ?? ""),
+              active: true,
+            }));
+
+          if (missingSupportStaff.length) {
+            const { error: syncError } = await supabase
+              .from("support_staff")
+              .upsert(missingSupportStaff, { onConflict: "email" });
+            if (syncError) {
+              console.error("Failed to sync support accounts:", syncError);
+            }
+          }
+
+          const allStaff = [...staff, ...missingSupportStaff];
+          setStaffList(allStaff);
+          setCachedData("admin_staff", allStaff, 60_000);
+        }
+
+        // Set loading to false after fetch completes (success or failure)
+        if (mounted) {
+          setIsLoading(false);
+        }
       } catch (err) {
         console.error("Admin data load rejected:", err);
         if (mounted) {
           setPageError(err instanceof Error ? err.message : "Unable to load dashboard data. Please check your connection and try again.");
           setIsLoading(false);
         }
-      } finally {
-        if (mounted) setIsLoading(false);
       }
     };
 
     const cachedTickets = getCachedData<Ticket[]>("admin_tickets");
     const cachedStaff = getCachedData<SupportStaff[]>("admin_staff");
     if (cachedTickets?.data) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTickets(cachedTickets.data);
     }
     if (cachedStaff?.data) {
       setStaffList(cachedStaff.data);
     }
+    // Only set loading to false if we have cached data for both
+    // Otherwise, let the refresh() call handle the loading state
     if (cachedTickets?.data && cachedStaff?.data) {
       setIsLoading(false);
     }
@@ -317,6 +373,7 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
   const openAddStaff = () => {
     setEditingStaff(null);
     setStaffForm({ name: "", email: "", role: "", customRole: "", password: "" });
+    setShowPassword(false);
     setIsStaffFormOpen(true);
     setIsStaffModalOpen(false);
   };
@@ -331,6 +388,7 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
       customRole: isCustomRole ? staff.role : "",
       password: "",
     });
+    setShowPassword(false);
     setIsStaffFormOpen(true);
     setIsStaffModalOpen(false);
   };
@@ -357,8 +415,10 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
       ? staffForm.customRole.trim()
       : staffForm.role.trim();
 
-    if (isEditing) {
-      try {
+    setIsSavingStaff(true);
+
+    try {
+      if (isEditing) {
         const res = await fetch(`/api/staff/${editingStaff.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -385,12 +445,9 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
           target_id: editingStaff.id,
           details: `Updated staff: ${name} (${email})`,
         });
-      } catch {
-        setStaffFormError("Something went wrong. Please try again.");
-        return;
-      }
-    } else {
-      try {
+
+        setStaffSaveResult({ success: true, message: "Staff member updated successfully!", staffName: name });
+      } else {
         const res = await fetch("/api/staff", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -417,10 +474,14 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
           target_id: data.staff.id,
           details: `Created staff: ${name} (${email})`,
         });
-      } catch {
-        setStaffFormError("Something went wrong. Please try again.");
-        return;
+
+        setStaffSaveResult({ success: true, message: "Staff member added successfully!", staffName: name });
       }
+    } catch {
+      setStaffFormError("Something went wrong. Please try again.");
+      return;
+    } finally {
+      setIsSavingStaff(false);
     }
 
     setIsStaffFormOpen(false);
@@ -461,11 +522,14 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
       return;
     }
     if (target?.email) {
-      await supabase
+      const { error: accountError } = await supabase
         .from("accounts")
-        .delete()
+        .update({ status: "suspended" })
         .eq("email", target.email)
-        .in("role", ["user", "support"]);
+        .eq("role", "support");
+      if (accountError) {
+        console.error("Failed to suspend removed staff account", accountError);
+      }
     }
     setStaffList((prev) => prev.filter((s) => s.id !== staffId));
     setTickets((prev) =>
@@ -484,6 +548,18 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
         details: `Deleted staff: ${target.name} (${target.email})`,
       });
     }
+  };
+
+  const handleRequestDeleteStaff = (staff: SupportStaff) => {
+    setStaffToDelete({ id: staff.id, name: staff.name });
+    setDeleteStaffModalOpen(true);
+  };
+
+  const handleConfirmDeleteStaff = async () => {
+    if (!staffToDelete) return;
+    await deleteStaff(staffToDelete.id);
+    setDeleteStaffModalOpen(false);
+    setStaffToDelete(null);
   };
 
   const toggleTheme = () => {
@@ -692,6 +768,7 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
             </p>
           </div>
           <div className="flex gap-3">
+            <WeeklyReportButton tickets={tickets} />
             {selectedStaff && (
               <button
                 onClick={() => setSelectedStaff(null)}
@@ -1219,27 +1296,48 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
                   />
                 )}
                </div>
-               {!editingStaff && (
-                 <div>
-                  <label
-                    htmlFor="staffPassword"
-                    className="block text-sm font-medium text-foreground"
-                  >
-                    Initial Password
-                  </label>
-                  <input
-                    id="staffPassword"
-                    type="password"
-                    required
-                    value={staffForm.password}
-                    onChange={(e) =>
-                      setStaffForm({ ...staffForm, password: e.target.value })
-                    }
-                    className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
-                    placeholder="Set the staff member's initial password"
-                  />
-                 </div>
-               )}
+                {!editingStaff && (
+                  <div>
+                   <label
+                     htmlFor="staffPassword"
+                     className="block text-sm font-medium text-foreground"
+                   >
+                     Initial Password
+                   </label>
+                   <div className="relative mt-1">
+                     <input
+                       id="staffPassword"
+                       type={showPassword ? "text" : "password"}
+                       required
+                       value={staffForm.password}
+                       onChange={(e) =>
+                         setStaffForm({ ...staffForm, password: e.target.value })
+                       }
+                       className="block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 pr-10 text-sm text-foreground shadow-sm transition-colors focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground dark:border-zinc-700 dark:bg-zinc-900"
+                       placeholder="Set the staff member's initial password"
+                     />
+                     <button
+                       type="button"
+                       aria-label={showPassword ? "Hide password" : "Show password"}
+                       onClick={() => setShowPassword((v) => !v)}
+                       className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-zinc-500 hover:text-foreground dark:text-zinc-400 dark:hover:text-zinc-200 focus:outline-none"
+                     >
+                       {showPassword ? (
+                         <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                           <path strokeLinecap="round" strokeLinejoin="round" d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7z" />
+                           <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                         </svg>
+                       ) : (
+                         <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                           <path strokeLinecap="round" strokeLinejoin="round" d="M12 5c-7 0-10 7-10 7s3 7 10 7 10-7 10-7-3-7-10-7z" />
+                           <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                           <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
+                         </svg>
+                       )}
+                     </button>
+                   </div>
+                  </div>
+                )}
                {staffFormError && (
                  <p role="alert" className="text-sm text-red-600 dark:text-red-400">{staffFormError}</p>
                )}
@@ -1258,9 +1356,16 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
                 <button
                   type="button"
                   onClick={handleSaveStaff}
-                  className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2"
+                  disabled={isSavingStaff}
+                  className="flex items-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2 disabled:opacity-50"
                 >
-                  {editingStaff ? "Save Changes" : "Add Staff Member"}
+                  {isSavingStaff && (
+                    <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                  )}
+                  {isSavingStaff ? "Saving..." : editingStaff ? "Save Changes" : "Add Staff Member"}
                 </button>
               </div>
             </div>
@@ -1278,9 +1383,29 @@ export default function AdminDashboard({ embedded = false }: { embedded?: boolea
           onAddStaff={openAddStaff}
           onEditStaff={openEditStaff}
           onToggleStaffStatus={toggleStaffStatus}
-          onDeleteStaff={deleteStaff}
+          onRequestDeleteStaff={handleRequestDeleteStaff}
           getStaffWorkload={getStaffWorkload}
           getAvatarColor={getAvatarColor}
+        />
+      )}
+      {deleteStaffModalOpen && staffToDelete && (
+        <DeleteStaffConfirmModal
+          isOpen={deleteStaffModalOpen}
+          onClose={() => {
+            setDeleteStaffModalOpen(false);
+            setStaffToDelete(null);
+          }}
+          onConfirm={handleConfirmDeleteStaff}
+          staffName={staffToDelete.name}
+        />
+      )}
+      {staffSaveResult && (
+        <StaffSaveFeedbackModal
+          isOpen={!!staffSaveResult}
+          onClose={() => setStaffSaveResult(null)}
+          success={staffSaveResult.success}
+          message={staffSaveResult.message}
+          staffName={staffSaveResult.staffName}
         />
       )}
       {isChatOpen && (
