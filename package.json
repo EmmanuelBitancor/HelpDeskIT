@@ -13,11 +13,13 @@
     "@supabase/supabase-js": "^2.112.3",
     "@upstash/ratelimit": "^2.0.8",
     "chart.js": "^4.5.1",
+    "exceljs": "^4.4.0",
     "next": "16.3.0",
     "nodemailer": "^9.0.5",
     "react": "19.2.8",
     "react-chartjs-2": "^5.3.1",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -25,6 +27,7 @@
     "@types/nodemailer": "^8.0.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/xlsx": "^0.0.35",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",

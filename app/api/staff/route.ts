@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
 
     let resolvedPassword: string;
     if (generatePassword === true) {
-      if (typeof password !== "undefined" && (typeof password !== "string" || password.length < 8)) {
+      if (typeof password === "string" && password.trim().length > 0 && password.length < 8) {
         return NextResponse.json(
           { error: "Password must be at least 8 characters" },
           { status: 400 },
@@ -82,6 +82,35 @@ export async function POST(request: NextRequest) {
     }
 
     const id = `staff-${Date.now()}`;
+
+    // Fail fast if this email is already tied to an account or support staff record.
+    const [existingAccount, existingStaff] = await Promise.all([
+      fetch(
+        `${serviceRole.url}/rest/v1/accounts?select=id,role&email=eq.${encodeURIComponent(trimmedEmail)}`,
+        { method: "GET", headers: serviceRole.headers },
+      ).then((r) => r.json()),
+      fetch(
+        `${serviceRole.url}/rest/v1/support_staff?select=id&email=eq.${encodeURIComponent(trimmedEmail)}`,
+        { method: "GET", headers: serviceRole.headers },
+      ).then((r) => r.json()),
+    ]);
+
+    const accountRow = Array.isArray(existingAccount) ? existingAccount[0] : existingAccount?.data?.[0];
+    const staffRow = Array.isArray(existingStaff) ? existingStaff[0] : existingStaff?.data?.[0];
+
+    if (accountRow) {
+      return NextResponse.json(
+        { error: `An account with ${trimmedEmail} already exists.` },
+        { status: 409 },
+      );
+    }
+
+    if (staffRow) {
+      return NextResponse.json(
+        { error: `Support staff with ${trimmedEmail} already exists.` },
+        { status: 409 },
+      );
+    }
 
     const authRes = await fetch(`${serviceRole.url}/auth/v1/admin/users`, {
       method: "POST",
@@ -143,25 +172,46 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const accountRes = await fetch(`${serviceRole.url}/rest/v1/accounts`, {
-      method: "POST",
-      headers: serviceRole.headers,
-      body: JSON.stringify({
-        id: crypto.randomUUID(),
-        user_id: userId,
-        name: trimmedName,
-        email: trimmedEmail,
-        role: "support",
-        status: "active",
-        avatar: initials,
-      }),
-    });
+    let accountRes = await fetch(
+      `${serviceRole.url}/rest/v1/accounts?user_id=eq.${encodeURIComponent(userId)}`,
+      {
+        method: "PATCH",
+        headers: serviceRole.headers,
+        body: JSON.stringify({
+          name: trimmedName,
+          email: trimmedEmail,
+          role: "support",
+          status: "active",
+          avatar: initials,
+        }),
+      },
+    );
+
+    if (accountRes.ok) {
+      const updatedAccounts = await accountRes.json();
+      if (!Array.isArray(updatedAccounts) || updatedAccounts.length === 0) {
+        accountRes = await fetch(`${serviceRole.url}/rest/v1/accounts`, {
+          method: "POST",
+          headers: serviceRole.headers,
+          body: JSON.stringify({
+            id: crypto.randomUUID(),
+            user_id: userId,
+            name: trimmedName,
+            email: trimmedEmail,
+            role: "support",
+            status: "active",
+            avatar: initials,
+          }),
+        });
+      }
+    }
 
     if (!accountRes.ok) {
       const accountError = await accountRes.text();
       console.error("Failed to create account:", accountError);
 
-      // Rollback support_staff
+      // Rollback support_staff and the auth user if the account profile
+      // cannot be completed.
       await fetch(
         `${serviceRole.url}/rest/v1/support_staff?id=eq.${encodeURIComponent(id)}`,
         {

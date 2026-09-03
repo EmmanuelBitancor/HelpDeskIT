@@ -19,6 +19,7 @@ import ChatPanel from "../chat/components/ChatPanel";
 import UserDashboard from "../dashboard/page";
 import AdminDashboard from "../admin/page";
 import SupportDashboard from "../support/page";
+import WeeklyReportButton from "@/components/WeeklyReportButton";
 import {
   Chart as ChartJS,
   ArcElement,
@@ -176,6 +177,9 @@ function OverviewSection({
   tickets: Ticket[];
   activities: ActivityLog[];
 }) {
+  const pieRef = useRef<HTMLDivElement | null>(null);
+  const barRef = useRef<HTMLDivElement | null>(null);
+
   const ticketsByStatus = {
     open: tickets.filter((t) => t.status === "open").length,
     in_progress: tickets.filter((t) => t.status === "in_progress").length,
@@ -251,6 +255,26 @@ function OverviewSection({
     },
   };
 
+  const captureCharts = useCallback(() => {
+    const images: { title: string; dataUrl: string }[] = [];
+
+    if (pieRef.current) {
+      const canvas = pieRef.current.querySelector("canvas");
+      if (canvas) {
+        images.push({ title: "Ticket Status Distribution", dataUrl: canvas.toDataURL("image/png") });
+      }
+    }
+
+    if (barRef.current) {
+      const canvas = barRef.current.querySelector("canvas");
+      if (canvas) {
+        images.push({ title: "Users by Role", dataUrl: canvas.toDataURL("image/png") });
+      }
+    }
+
+    return images;
+  }, []);
+
   return (
     <div className="space-y-6">
       {/* KPI Row */}
@@ -280,15 +304,20 @@ function OverviewSection({
         />
       </div>
 
+      {/* Export */}
+      <div className="flex justify-end">
+        <WeeklyReportButton tickets={tickets} activities={activities} users={users} health={health} captureCharts={captureCharts} userRole="superadmin" />
+      </div>
+
       {/* Charts */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+        <div ref={pieRef} className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
           <h3 className="mb-4 text-sm font-semibold text-foreground">Ticket Status Distribution</h3>
           <div className="h-64">
             <Pie data={pieData} options={chartOptions} />
           </div>
         </div>
-        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+        <div ref={barRef} className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
           <h3 className="mb-4 text-sm font-semibold text-foreground">Users by Role</h3>
           <div className="h-64">
             <Bar data={barData} options={chartOptions} />
@@ -569,22 +598,25 @@ function TicketsSection({ tickets, staffList, onViewTicket, onReassign }: {
   return (
     <div className="space-y-4">
       {/* Filter Bar */}
-      <div className="flex flex-wrap gap-2">
-        {(["all", "open", "in_progress", "resolved", "closed"] as const).map(
-          (s) => (
-            <button
-              key={s}
-              onClick={() => setFilter(s)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
-                filter === s
-                  ? "bg-foreground text-background"
-                  : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-              }`}
-            >
-              {s.replace("_", " ")}
-            </button>
-          )
-        )}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          {(["all", "open", "in_progress", "resolved", "closed"] as const).map(
+            (s) => (
+              <button
+                key={s}
+                onClick={() => setFilter(s)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+                  filter === s
+                    ? "bg-foreground text-background"
+                    : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                }`}
+              >
+                {s.replace("_", " ")}
+              </button>
+            ),
+          )}
+        </div>
+        <WeeklyReportButton tickets={tickets} userRole="superadmin" />
       </div>
 
       <div className="space-y-3">
@@ -749,30 +781,33 @@ function ActivitySection({ activities }: { activities: ActivityLog[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => setFilter("all")}
-          className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
-            filter === "all"
-              ? "bg-foreground text-background"
-              : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-          }`}
-        >
-          All
-        </button>
-        {uniqueActions.map((action) => (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
-            key={action}
-            onClick={() => setFilter(action)}
+            onClick={() => setFilter("all")}
             className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
-              filter === action
+              filter === "all"
                 ? "bg-foreground text-background"
                 : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
             }`}
           >
-            {action.replace(/_/g, " ")}
+            All
           </button>
-        ))}
+          {uniqueActions.map((action) => (
+            <button
+              key={action}
+              onClick={() => setFilter(action)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+                filter === action
+                  ? "bg-foreground text-background"
+                  : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              }`}
+            >
+              {action.replace(/_/g, " ")}
+            </button>
+          ))}
+        </div>
+        <WeeklyReportButton activities={activities} userRole="superadmin" />
       </div>
 
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -908,6 +943,9 @@ function SessionsSection() {
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <WeeklyReportButton sessions={sessions} userRole="superadmin" />
+      </div>
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
           <h2 className="text-sm font-semibold text-foreground">

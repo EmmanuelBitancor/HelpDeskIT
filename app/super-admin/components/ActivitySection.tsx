@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { usePagination, Pagination } from "@/components/Pagination";
 import type { ActivityLog } from "../types";
+import WeeklyReportButton from "@/components/WeeklyReportButton";
 
 interface ActivitySectionProps {
   activities: ActivityLog[];
@@ -43,30 +44,33 @@ export default function ActivitySection({ activities }: ActivitySectionProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => setFilter("all")}
-          className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
-            filter === "all"
-              ? "bg-foreground text-background"
-              : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-          }`}
-        >
-          All
-        </button>
-        {uniqueActions.map((action) => (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
-            key={action}
-            onClick={() => setFilter(action)}
+            onClick={() => setFilter("all")}
             className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
-              filter === action
+              filter === "all"
                 ? "bg-foreground text-background"
                 : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
             }`}
           >
-            {action.replace(/_/g, " ")}
+            All
           </button>
-        ))}
+          {uniqueActions.map((action) => (
+            <button
+              key={action}
+              onClick={() => setFilter(action)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+                filter === action
+                  ? "bg-foreground text-background"
+                  : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              }`}
+            >
+              {action.replace(/_/g, " ")}
+            </button>
+          ))}
+        </div>
+        <WeeklyReportButton activities={activities} userRole="superadmin" />
       </div>
 
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
